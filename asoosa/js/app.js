@@ -1388,6 +1388,7 @@
   function onPlayerStatus(type, data) {
     if (type === 'error' && tryNextVersion()) return;
     if (type === 'error' && recoverVod('error')) return;
+    if (type === 'playing' && S.playing) S.playing.started = true;
     if (type === 'playing' && S.playing && S.playing.kind === 'episode' && !S.playing.introChecked) {
       var pe = S.playing;
       pe.introChecked = true;
@@ -1401,7 +1402,12 @@
     if (type === 'subtitle') { onEmbeddedSub(data); return; }
     if (type === 'buffering') { S.status = data ? 'Buffering ' + data + '%' : 'Loading…'; S.statusErr = false; }
     else if (type === 'playing') { S.status = ''; S.statusErr = false; }
-    else if (type === 'error') { S.status = 'Stream unavailable'; S.statusErr = true; }
+    else if (type === 'error') {
+      // Show what the TV's player said, so a failing title can be told apart (format, server, connection).
+      var why = data && typeof data === 'object' ? (data.name || data.message || '') : String(data || '');
+      S.status = 'Stream unavailable' + (why ? '  ·  ' + why.substring(0, 60) : '');
+      S.statusErr = true;
+    }
     else if (type === 'ended') { onEnded(); return; }
     if (bannerVisible()) renderBanner();
     if (type === 'error') showBanner(true);
@@ -1524,6 +1530,16 @@
     hideSub();
     chList.invalidate();
     showBanner();
+    // Watchdog: a movie / episode that shows nothing for 25 s gets a clear message instead of a black screen.
+    clearTimeout(timers.watchdog);
+    if (p.kind !== 'live') {
+      timers.watchdog = setTimeout(function () {
+        if (S.playing !== p || p.started || S.statusErr) return;
+        S.status = 'Not starting (player: ' + Player.state() + ')  ·  try another version of this title';
+        S.statusErr = true;
+        showBanner(true);
+      }, 25000);
+    }
     var startMs = p.posKey && positions[p.posKey] ? positions[p.posKey] : 0;
     if (startMs) toast('Resuming at ' + fmtTime(startMs) + ' · ◄ to rewind', 3000);
     clearTimeout(timers.zap);

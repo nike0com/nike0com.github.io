@@ -175,6 +175,9 @@ var Player = (function () {
     return out;
   }
 
+  /** The TV player's state (NONE / IDLE / READY / PLAYING / PAUSED), for messages. */
+  function state() { try { return av ? av.getState() : (video && !video.paused ? 'PLAYING' : 'IDLE'); } catch (e) { return '?'; } }
+
   /** Audio tracks: [{ index, lang }] (the TV often leaves lang empty; the app reads it from the file). */
   function audioTracks() {
     var out = [];
@@ -232,6 +235,6 @@ var Player = (function () {
     init: init, play: play, stop: stop, togglePause: togglePause,
     time: time, duration: duration, seekTo: seekTo, textTracks: textTracks, selectText: selectText, setTextOffset: setTextOffset,
     suspend: suspend, restore: restore, setBuffering: setBuffering, speeds: speeds, setSpeed: setSpeed,
-    audioTracks: audioTracks, selectAudio: selectAudio
+    audioTracks: audioTracks, selectAudio: selectAudio, state: state
   };
 })();
