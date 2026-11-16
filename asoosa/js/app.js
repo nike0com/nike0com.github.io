@@ -1735,6 +1735,11 @@
 
     // OK on a channel / poster: a short press opens it, holding it opens the options menu.
     if (k === 'ENTER' && S.panel && S.focus === 'list' && S.view.length) { okDown(function () { panelKey('ENTER'); }, openItemMenu); return; }
+    // OK on a coming match on Home: short = watch, held = reminder on / off.
+    if (k === 'ENTER' && S.panel && S.focus === 'home') {
+      var hr = HOME.rows[HOME.r], hm = hr && hr.id === 'matches' ? hr.items[HOME.c[HOME.r] || 0] : null;
+      if (hm && hm.state === 'pre') { okDown(function () { homeKey('ENTER'); }, function () { toggleReminder(hm); }); return; }
+    }
     // OK while watching: short = channel list, held = speed / subtitles / record / sleep timer.
     if (k === 'ENTER' && !S.panel && S.playing) { okDown(function () { watchKey('ENTER'); }, openWatchMenu); return; }
 
@@ -1950,13 +1955,13 @@
         { title: 'Switzerland', source: '20 Minuten', url: 'https://partner-feeds.20min.ch/rss/20minuten/schweiz' }
       ],
       // Leagues without a TV guide: which channels to show (a search; " | " separates alternatives).
+      // Egyptian league: ON Sport; every other match: beIN Sports ("*").
       leagueChannels: h.leagueChannels || {
-        'ita.1': '"seria" | "shahid event"',
-        'ger.1': '"shahid bundesliga"',
+        '*': 'group:AR| BEIN SPORTS FHD',
         'egypt': h.egyptChannels || '"ON SPORT"'
       },
       // Network shown on a match card when the exact channel is unknown (anything else: beIN Sports).
-      leagueLabels: h.leagueLabels || { 'ita.1': 'AD Sport Seria', 'ger.1': 'Shahid Bundesliga', 'egypt': 'ON Sport' },
+      leagueLabels: h.leagueLabels || { 'egypt': 'ON Sport' },
       // Prayer times (Aladhan; method 3 = Muslim World League) and a short notice at each adhan.
       prayer: h.prayer || { method: 3, notify: true },
       rates: h.rates || [['CHF', 'EGP'], ['EUR', 'EGP'], ['USD', 'EGP'], ['EUR', 'CHF'], ['USD', 'CHF']],
@@ -2216,9 +2221,11 @@
   /** Sets m.ch (channel index to play) and m.chName on every match found in the guide. */
   function linkMatches() {
     var progs = (HOME.epg && HOME.epg.progs) || [], L = S.live;
+    // Egyptian league: always the ON Sport channels. Everything else: only a beIN Sports channel counts.
+    function isBein(idx) { var c = L.channels[idx]; return !!c && /bein/i.test(c.n + ' ' + (L.groups[c.g] || '')); }
     (HOME.matches || []).forEach(function (m) {
       m.ch = undefined; m.chName = '';
-      if (!m.homeNames) return;
+      if (!m.homeNames || m.code === 'egypt') return;
       var best = null;
       for (var i = 0; i < progs.length; i++) {
         var p = progs[i];
@@ -2226,7 +2233,7 @@
         // The provider's guide runs in Qatar time (about +3 h) and starts ~30 min before kick-off,
         // so accept a programme from 1 h before to 5 h after the real kick-off; take the earliest.
         var near = p.s >= m.time - 60 * 60000 && p.s <= m.time + 5 * 3600000;
-        if (!near || !titleHas(p.t, m.homeNames) || !titleHas(p.t, m.awayNames)) continue;
+        if (!near || !isBein(p.idx) || !titleHas(p.t, m.homeNames) || !titleHas(p.t, m.awayNames)) continue;
         if (!best || p.s < best.s) best = p;
       }
       if (best) {
@@ -2239,6 +2246,7 @@
       // ("Live | Sudan vs Senegal || Arabic", "SHAHID PPV 1 - AL QADSIAH FC VS. EASTERN").
       var hit = -1;
       for (var c = 0; c < L.channels.length; c++) {
+        if (!isBein(c)) continue;
         var nm = normName(L.channels[c].n);
         if (titleHas(nm, m.homeNames) && titleHas(nm, m.awayNames)) {
           hit = c;
@@ -2456,8 +2464,7 @@
         if (!err && list.length) S.zap = { kind: 'episode', list: list, series: series };
       });
     } else if (type === 'matches') {
-      // Still far away: OK sets (or removes) a reminder; close to kick-off or live: watch.
-      if (it.state === 'pre' && it.time - Date.now() > 10 * 60000) { toggleReminder(it); return; }
+      // OK always opens the channel (Egyptian league: ON Sport, the rest: beIN). Holding OK = reminder.
       playMatch(it);
     }
   }
