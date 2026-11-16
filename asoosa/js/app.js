@@ -1347,6 +1347,11 @@
   function onPlayerStatus(type, data) {
     if (type === 'error' && tryNextVersion()) return;
     if (type === 'error' && recoverVod('error')) return;
+    if (type === 'playing' && S.playing && S.playing.kind === 'episode' && !S.playing.introChecked) {
+      var pe = S.playing;
+      pe.introChecked = true;
+      setTimeout(function () { if (S.playing === pe) introOffer(pe); }, 1500);   // position is known a moment after start
+    }
     if (type === 'playing' && S.playing && S.playing.kind !== 'live') {
       var pl = S.playing;
       setTimeout(function () { if (S.playing === pl && Player.time() > 60000) pl.recoveries = 0; }, 30000);
@@ -1367,10 +1372,48 @@
     if (p) { clearPos(p.posKey); finishedTitle(p); }
     if (p && p.kind === 'episode' && S.zap.kind === 'episode') {
       var pos = indexById(S.zap.list, p.id);
-      if (pos >= 0 && pos + 1 < S.zap.list.length) { toast('Next episode'); playEpisode(S.zap.list[pos + 1], S.zap.series); return; }
+      if (pos >= 0 && pos + 1 < S.zap.list.length) { nextUp(S.zap.list[pos + 1], S.zap.series); return; }
     }
     S.status = 'Finished'; S.statusErr = false;
     showBanner(true);
+  }
+
+  /** Episode finished: the next one starts after 10 s (OK = now, BACK = stop). */
+  function nextUp(ep, series) {
+    var left = 10;
+    function body() { return esc(ep.n) + '<br><small>starts in ' + left + ' s</small>'; }
+    clearInterval(timers.nextUp);
+    timers.nextUp = setInterval(function () {
+      left--;
+      if (left > 0 && ALERT) $('al-body').innerHTML = body();
+    }, 1000);
+    function stopCount() { clearInterval(timers.nextUp); }
+    showAlert('Next episode · ' + cleanTitle(series.n), body(), 'Play now', 'Stop',
+      function () { stopCount(); playEpisode(ep, series); },
+      function () { stopCount(); S.status = 'Finished'; S.statusErr = false; showBanner(true); },
+      10000, false);
+  }
+
+  /*
+   * Skip intro: the app learns each series' intro from you. The first time you jump forward
+   * (► / FF) at the start of an episode, that point is remembered; next episodes show
+   * "Skip intro · OK" at the start and OK jumps there.
+   */
+  var INTRO = Store.lsGet('intro') || {};               // series id -> ms where the episode really starts
+  function introOffer(p) {
+    var at = p.series && INTRO[p.series.id];
+    if (!at || Player.time() > at - 5000) return;
+    p.introOffer = at;
+    $('skip').classList.remove('hidden');
+  }
+  function hideSkip() { if (S.playing) S.playing.introOffer = 0; $('skip').classList.add('hidden'); }
+  function learnIntro(from, to) {
+    var p = S.playing;
+    if (!p || p.kind !== 'episode' || !p.series || from > 150000 || to <= from || to < 20000 || to > 360000) return;
+    if (INTRO[p.series.id] && Math.abs(INTRO[p.series.id] - to) < 3000) return;
+    INTRO[p.series.id] = to;
+    Store.lsSet('intro', INTRO);
+    toast('Intro saved for this series · next episodes: "Skip intro" with OK', 4000);
   }
 
   /* ---------------- resume positions (movies / episodes) ---------------- */
@@ -1590,8 +1633,11 @@
     S.seekDelta += deltaMs;
     showBanner();
     later('seek', 700, function () {
-      Player.seekTo(S.seekBase + S.seekDelta);
+      var from = S.seekBase, to = S.seekBase + S.seekDelta;
+      Player.seekTo(to);
       S.seekBase = -1; S.seekDelta = 0;
+      if (to > from) learnIntro(from, to);
+      if (S.playing && S.playing.introOffer) hideSkip();
     });
   }
 
@@ -1701,6 +1747,13 @@
     var k = Keys.name(e);
     if (!k) return;
 
+    // Typing a name / subscription: every key belongs to the text field except OK and BACK.
+    if (PROMPT) {
+      if (k === 'ENTER' || k === 'DONE') { e.preventDefault(); closePrompt(true); }
+      else if (k === 'BACK' || k === 'CANCEL') { e.preventDefault(); closePrompt(false); }
+      return;
+    }
+
     // A popup (match reminder, sleep timer) takes OK / BACK first.
     if (ALERT) {
       e.preventDefault();
@@ -1739,6 +1792,13 @@
     if (k === 'ENTER' && S.panel && S.focus === 'home') {
       var hr = HOME.rows[HOME.r], hm = hr && hr.id === 'matches' ? hr.items[HOME.c[HOME.r] || 0] : null;
       if (hm && hm.state === 'pre') { okDown(function () { homeKey('ENTER'); }, function () { toggleReminder(hm); }); return; }
+    }
+    // "Skip intro" showing: OK jumps over the intro.
+    if (k === 'ENTER' && !S.panel && S.playing && S.playing.introOffer) {
+      Player.seekTo(S.playing.introOffer);
+      hideSkip();
+      toast('Intro skipped', 1500);
+      return;
     }
     // OK while watching: short = channel list, held = speed / subtitles / record / sleep timer.
     if (k === 'ENTER' && !S.panel && S.playing) { okDown(function () { watchKey('ENTER'); }, openWatchMenu); return; }
@@ -2308,21 +2368,25 @@
     }
     // Live and upcoming here; finished matches go to "Results" below.
     if (ms) ms = ms.filter(function (m) { return m.state !== 'done'; });
-    rows.push({ id: 'matches', title: 'Matches', items: ms || [], empty: ms ? 'No matches in the next days' : 'Loading matches…' });
+    rows.push({ key: 'matches', id: 'matches', title: 'Matches', items: ms || [], empty: ms ? 'No matches in the next days' : 'Loading matches…' });
     var res = resultCards();
-    rows.push({ id: 'results', title: 'Results', items: res, empty: HOME.resultsOld || HOME.matches ? 'No results in the last days' : 'Loading results…' });
-    rows.push({ id: 'pray', title: 'Prayer times · ' + homeCfg().weather.name, items: prayerCards(), empty: 'Loading prayer times…' });
-    rows.push({ id: 'table', title: 'League tables', items: tableCards(), empty: 'Loading tables…' });
+    rows.push({ key: 'results', id: 'results', title: 'Results', items: res, empty: HOME.resultsOld || HOME.matches ? 'No results in the last days' : 'Loading results…' });
+    rows.push({ key: 'pray', id: 'pray', title: 'Prayer times · ' + homeCfg().weather.name, items: prayerCards(), empty: 'Loading prayer times…' });
+    rows.push({ key: 'table', id: 'table', title: 'League tables', items: tableCards(), empty: 'Loading tables…' });
     homeCfg().news.forEach(function (feed, i) {
       var n = HOME.news[i];
-      rows.push({ id: 'news', title: feed.title, items: n ? n.items : [], empty: !n ? 'Loading news…' : n.error ? 'News unavailable (' + n.error + ')' : 'No news' });
+      rows.push({ key: 'news:' + i, id: 'news', title: feed.title, items: n ? n.items : [], empty: !n ? 'Loading news…' : n.error ? 'News unavailable (' + n.error + ')' : 'No news' });
     });
-    rows.push({ id: 'rate', title: 'Exchange rates', items: rateCards(), empty: 'Loading rates…' });
-    rows.push({ id: 'cw', title: 'Continue watching', items: cw.slice(), empty: '' });
-    if (S.live.channels.length) rows.push({ id: 'favs', title: 'Recently watched', items: recentChannels(), empty: '' });
+    rows.push({ key: 'rate', id: 'rate', title: 'Exchange rates', items: rateCards(), empty: 'Loading rates…' });
+    rows.push({ key: 'cw', id: 'cw', title: 'Continue watching', items: cw.slice(), empty: '' });
+    if (S.live.channels.length) rows.push({ key: 'recent', id: 'favs', title: 'Recently watched', items: recentChannels(), empty: '' });
     var favs = S.live.channels.length ? favList().slice(0, 15) : [];
-    rows.push({ id: 'favs', title: 'Favorite channels', items: favs, empty: S.live.channels.length ? 'Press GREEN on a channel to add it here' : 'Loading channels…' });
-    rows = rows.filter(function (r) { return r.items.length || r.empty; });
+    rows.push({ key: 'favs', id: 'favs', title: 'Favorite channels', items: favs, empty: S.live.channels.length ? 'Press GREEN on a channel to add it here' : 'Loading channels…' });
+    // Your order and hidden rows (Settings > Home screen).
+    var layout = homeRowList(), pos = {};
+    layout.forEach(function (d, i) { pos[d.key] = d.hidden ? -1 : i; });
+    rows = rows.filter(function (r) { return pos[r.key] !== -1 && (r.items.length || r.empty); });
+    rows.sort(function (a, b) { return (pos[a.key] || 0) - (pos[b.key] || 0); });
     HOME.rows = rows;
     if (HOME.r >= rows.length) HOME.r = 0;
 
@@ -3042,7 +3106,8 @@
     var data = {};
     for (var i = 0; i < localStorage.length; i++) {
       var k = localStorage.key(i);
-      if (/^db:|^last$|^refreshedAt$|^upd|^rates$|^prayer$/.test(k)) continue;   // caches and downloaded app code, not settings
+      // caches and downloaded app code are not settings; the subscription (password) never goes on a USB stick
+      if (/^db:|^last$|^refreshedAt$|^upd|^rates$|^prayer$|^cfgOverride$/.test(k)) continue;
       data[k] = localStorage.getItem(k);
     }
     return JSON.stringify({ app: 'AsoosA IPTV', v: 1, at: Date.now(), data: data });
@@ -3103,13 +3168,128 @@
     });
   }
 
+  /* ---- text entry on the TV keyboard ---- */
+
+  var PROMPT = null;                                    // { cb }
+  function askText(title, value, cb) {
+    PROMPT = { cb: cb, focus: S.focus };
+    $('pr-title').textContent = title;
+    var inp = $('pr-input');
+    inp.value = value || '';
+    $('prompt').classList.remove('hidden');
+    setTimeout(function () { inp.focus(); try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (e) {} }, 50);
+  }
+  function closePrompt(save) {
+    var p = PROMPT, v = $('pr-input').value.trim();
+    PROMPT = null;
+    $('pr-input').blur();
+    $('prompt').classList.add('hidden');
+    if (p && save && p.cb) p.cb(v);
+  }
+
+  /* ---- profiles ---- */
+
+  function curProfile() {
+    var id = Store.profile(), list = Store.profiles();
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return list[0];
+  }
+  function switchProfile(id) {
+    savePos();
+    try { localStorage.setItem('profile', JSON.stringify(id)); } catch (e) {}
+    Player.stop();
+    location.reload();
+  }
+  function addProfile(name) {
+    if (!name) return;
+    var list = Store.profiles();
+    if (list.length >= 6) return toast('Up to 6 profiles');
+    var id = 'u' + Date.now().toString(36);
+    list.push({ id: id, name: name.substring(0, 20) });
+    Store.saveProfiles(list);
+    toast('Profile "' + name + '" added  ·  you choose who is watching when the app starts', 5000);
+    renderSettings();
+  }
+
+  /* ---- subscription entered on the TV ---- */
+
+  function subDraft() {
+    if (!SET.sub) {
+      var ov = Store.lsGet('cfgOverride') || {}, acc = S.acc || {};
+      SET.sub = { server: ov.server || acc.server || '', username: ov.username || acc.user || '', password: ov.password || '', changed: false };
+    }
+    return SET.sub;
+  }
+  function saveSubscription() {
+    var d = subDraft(), server = d.server.trim();
+    if (!server || !d.username || !d.password) return toast('Enter server, username and password first', 4000);
+    if (!/^https?:\/\//i.test(server)) server = 'http://' + server;
+    Store.lsSet('cfgOverride', { server: server.replace(/\/+$/, ''), username: d.username, password: d.password });
+    Store.lsSet('last', null);                              // the old channel link belongs to the old subscription
+    toast('Subscription saved · loading the channels…', 0);
+    setTimeout(function () { Player.stop(); location.reload(); }, 1200);
+  }
+
+  /* ---- Home screen rows: order and visibility ---- */
+
+  function homeRowList() {
+    var lay = Store.lsGet('homeRows') || {}, order = lay.order || [];
+    var defs = [{ key: 'matches', title: 'Matches' }, { key: 'results', title: 'Results' }, { key: 'pray', title: 'Prayer times' },
+      { key: 'table', title: 'League tables' }];
+    homeCfg().news.forEach(function (f, i) { defs.push({ key: 'news:' + i, title: 'News · ' + f.title }); });
+    defs.push({ key: 'rate', title: 'Exchange rates' }, { key: 'cw', title: 'Continue watching' },
+      { key: 'recent', title: 'Recently watched' }, { key: 'favs', title: 'Favorite channels' });
+    defs.forEach(function (d, i) { var p = order.indexOf(d.key); d.pos = p >= 0 ? p : 100 + i; d.hidden = !!(lay.hidden || {})[d.key]; });
+    defs.sort(function (a, b) { return a.pos - b.pos; });
+    return defs;
+  }
+  function saveHomeRows(list) {
+    var hidden = {};
+    list.forEach(function (d) { if (d.hidden) hidden[d.key] = 1; });
+    Store.lsSet('homeRows', { order: list.map(function (d) { return d.key; }), hidden: hidden });
+  }
+
+  var SET_TITLES = { main: 'Settings', teams: 'Favorite teams', profiles: 'Profiles', sub: 'Subscription', home: 'Home screen' };
+  var SET_HINTS = {
+    main: 'Sleep timer shortcut: press 0 while watching',
+    teams: 'OK to add or remove  ·  BACK when done  ·  teams from the current match list',
+    profiles: 'Each profile keeps its own favorites, continue watching, watched, subtitles and teams',
+    sub: 'Saved on this TV only  ·  OK on a line to type  ·  then "Save and reload"',
+    home: 'OK: show / hide  ·  ◄ move up  ·  ► move down  ·  BACK when done'
+  };
+
   function settingsRows() {
     if (SET.mode === 'teams') {
       return allTeams().map(function (t) { return { id: 'team', team: t, label: t, value: teamIsFav([t]) ? '★ Favorite' : '', on: teamIsFav([t]) }; });
     }
+    if (SET.mode === 'profiles') {
+      var cur = curProfile(), plist = Store.profiles();
+      var out = plist.map(function (p) { return { id: 'prof', prof: p, label: p.name, value: p.id === cur.id ? '● watching now' : 'OK to switch', on: p.id === cur.id }; });
+      out.push({ id: 'addprof', label: '+ Add a profile', value: '' });
+      out.push({ id: 'renprof', label: 'Rename "' + cur.name + '"', value: '' });
+      if (cur.id !== 'main') out.push({ id: 'delprof', label: 'Delete "' + cur.name + '"', value: SET.armed === 'delprof' ? 'press OK again to delete' : 'removes its favorites and history' });
+      return out;
+    }
+    if (SET.mode === 'sub') {
+      var d = subDraft(), ov = Store.lsGet('cfgOverride');
+      var rows = [
+        { id: 'sub-server', label: 'Server', value: d.server || 'not set' },
+        { id: 'sub-username', label: 'Username', value: d.username || 'not set' },
+        { id: 'sub-password', label: 'Password', value: d.password ? new Array(Math.min(d.password.length, 12) + 1).join('•') : (ov ? '' : 'from config.json') },
+        { id: 'sub-save', label: 'Save and reload', value: d.changed ? 'press OK' : '' }
+      ];
+      if (ov) rows.push({ id: 'sub-reset', label: 'Use config.json again', value: SET.armed === 'sub-reset' ? 'press OK again' : '' });
+      return rows;
+    }
+    if (SET.mode === 'home') {
+      return homeRowList().map(function (r) { return { id: 'hrow', key: r.key, label: r.title, value: r.hidden ? 'Hidden' : 'Shown', on: !r.hidden }; });
+    }
     var lb = Store.lsGet('lastBackup'), upcoming = reminders.filter(function (r) { return r.time > Date.now(); }).length;
+    var acc0 = S.acc ? S.acc.server.replace(/^https?:\/\//, '') + '  ·  ' + S.acc.user + (S.cfg && S.cfg.fromTV ? '  (set on TV)' : '') : 'not set';
     return [
+      { id: 'profiles', label: 'Profile', value: curProfile().name + (Store.profiles().length > 1 ? '  ·  OK to switch' : '  ·  OK to add family') },
       { id: 'sleep', label: 'Sleep timer', value: sleepLabel() },
+      { id: 'home', label: 'Home screen', value: 'show, hide and order the rows' },
       { id: 'subsize', label: 'Subtitle size', value: SUB_SIZES[subStyle.size || 0].n },
       { id: 'subcolor', label: 'Subtitle colour', value: SUB_COLORS[subStyle.color || 0].n },
       { id: 'subbg', label: 'Subtitle background', value: SUB_BGS[subStyle.bg || 0].n },
@@ -3117,42 +3297,95 @@
       { id: 'reminders', label: 'Match reminders', value: upcoming ? upcoming + ' upcoming  ·  OK twice to clear' : 'None' },
       { id: 'backup', label: 'Backup to USB', value: lb ? 'last: ' + new Date(lb).toLocaleString() : 'never' },
       { id: 'restore', label: 'Restore from USB', value: SET.armed === 'restore' ? 'press OK again to restore' : '' },
+      { id: 'sub', label: 'Subscription', value: acc0 },
       { id: 'update', label: 'App version ' + appVersion(), value: SET.updMsg || 'OK to check for updates' }
     ];
   }
 
   function renderSettings() {
-    var rows = settingsRows(), html = '';
-    var sel = SET.mode === 'teams' ? SET.teamSel : SET.sel;
+    var rows = settingsRows(), html = '', m = SET.mode;
+    SET.sels = SET.sels || {};
+    var sel = SET.sels[m] || 0;
     if (sel >= rows.length) sel = Math.max(0, rows.length - 1);
-    if (SET.mode === 'teams') SET.teamSel = sel; else SET.sel = sel;
-    $('set-title').textContent = SET.mode === 'teams' ? 'Favorite teams' : 'Settings';
-    $('set-sub').textContent = SET.mode === 'teams'
-      ? 'OK to add or remove  ·  BACK when done  ·  teams from the current match list'
-      : 'Sleep timer shortcut: press 0 while watching';
-    // Show a window of rows around the selection (the team list can be long).
+    SET.sels[m] = sel;
+    $('set-title').textContent = SET_TITLES[m] || 'Settings';
+    $('set-sub').textContent = SET_HINTS[m] || '';
+    // Show a window of rows around the selection (lists can be long).
     var start = Math.max(0, Math.min(sel - 4, rows.length - 9));
     for (var i = start; i < Math.min(rows.length, start + 9); i++) {
       var r = rows[i];
-      html += '<div class="set-row' + (SET.mode === 'teams' ? ' small' : '') + (S.focus === 'settings' && i === sel ? ' focus' : '') + '">' +
+      html += '<div class="set-row' + (m === 'teams' ? ' small' : '') + (S.focus === 'settings' && i === sel ? ' focus' : '') + '">' +
         '<span>' + esc(r.label) + '</span><span class="sv' + (r.on ? ' on' : '') + '">' + esc(r.value) + '</span></div>';
     }
     $('set-rows').innerHTML = html;
   }
 
   function settingsKey(k) {
-    var rows = settingsRows(), teams = SET.mode === 'teams';
-    var sel = teams ? SET.teamSel : SET.sel, row = rows[sel];
+    var rows = settingsRows(), m = SET.mode;
+    SET.sels = SET.sels || {};
+    var sel = SET.sels[m] || 0, row = rows[sel];
+    function go(mode) { SET.mode = mode; SET.sels[mode] = 0; SET.armed = ''; renderSettings(); }
+    // Home screen rows: ◄ / ► move the selected row up / down.
+    if (m === 'home' && (k === 'LEFT' || k === 'RIGHT') && row) {
+      var list = homeRowList(), to = sel + (k === 'LEFT' ? -1 : 1);
+      if (to >= 0 && to < list.length) {
+        var t = list[sel]; list[sel] = list[to]; list[to] = t;
+        saveHomeRows(list);
+        SET.sels[m] = to;
+        renderSettings();
+      }
+      return;
+    }
     switch (k) {
-      case 'UP': if (sel > 0) { if (teams) SET.teamSel--; else SET.sel--; SET.armed = ''; renderSettings(); } break;
-      case 'DOWN': if (sel < rows.length - 1) { if (teams) SET.teamSel++; else SET.sel++; SET.armed = ''; renderSettings(); } break;
-      case 'LEFT': if (!teams) setFocus('tabs'); break;
+      case 'UP': if (sel > 0) { SET.sels[m] = sel - 1; SET.armed = ''; renderSettings(); } break;
+      case 'DOWN': if (sel < rows.length - 1) { SET.sels[m] = sel + 1; SET.armed = ''; renderSettings(); } break;
+      case 'LEFT': if (m === 'main') setFocus('tabs'); break;
       case 'BACK':
-        if (teams) { SET.mode = 'main'; renderSettings(); } else panelBack();
+        if (m !== 'main') { if (m === 'sub') SET.sub = null; go('main'); } else panelBack();
         break;
       case 'ENTER':
         if (!row) break;
-        if (row.id === 'team') {
+        if (row.id === 'profiles') go('profiles');
+        else if (row.id === 'home') go('home');
+        else if (row.id === 'sub') { SET.sub = null; go('sub'); }
+        else if (row.id === 'prof') { if (!row.on) switchProfile(row.prof.id); }
+        else if (row.id === 'addprof') askText('Name of the new profile', '', addProfile);
+        else if (row.id === 'renprof') {
+          askText('New name', curProfile().name, function (name) {
+            if (!name) return;
+            var list = Store.profiles(), id = curProfile().id;
+            list.forEach(function (p) { if (p.id === id) p.name = name.substring(0, 20); });
+            Store.saveProfiles(list);
+            renderSettings();
+          });
+        }
+        else if (row.id === 'delprof') {
+          if (SET.armed !== 'delprof') { SET.armed = 'delprof'; renderSettings(); }
+          else {
+            var gone = curProfile().id;
+            Store.saveProfiles(Store.profiles().filter(function (p) { return p.id !== gone; }));
+            Store.dropProfileData(gone);
+            switchProfile('main');
+          }
+        }
+        else if (row.id === 'hrow') {
+          var hl = homeRowList();
+          hl.forEach(function (d) { if (d.key === row.key) d.hidden = !d.hidden; });
+          saveHomeRows(hl);
+          renderSettings();
+        }
+        else if (/^sub-(server|username|password)$/.test(row.id)) {
+          var field = row.id.substring(4), dr = subDraft();
+          askText(row.label, field === 'server' && !dr.server ? 'http://' : dr[field], function (v) {
+            dr[field] = v; dr.changed = true; renderSettings();
+          });
+        }
+        else if (row.id === 'sub-save') saveSubscription();
+        else if (row.id === 'sub-reset') {
+          if (SET.armed !== 'sub-reset') { SET.armed = 'sub-reset'; renderSettings(); }
+          else { Store.lsSet('cfgOverride', null); Store.lsSet('last', null); toast('Using config.json again…', 0); setTimeout(function () { Player.stop(); location.reload(); }, 1200); }
+        }
+        else if (row.id === 'team') {
           var list = favTeams();
           // remove every saved name that refers to this team ("Real Madrid" / "Real Madrid CF")
           if (teamIsFav([row.team])) list = list.filter(function (t) { return !sameTeam(t, row.team); });
@@ -3167,7 +3400,7 @@
           cycleSubStyle(row.id === 'subsize' ? 'size' : row.id === 'subcolor' ? 'color' : 'bg');
           renderSettings();
         }
-        else if (row.id === 'teams') { SET.mode = 'teams'; SET.teamSel = 0; renderSettings(); }
+        else if (row.id === 'teams') go('teams');
         else if (row.id === 'reminders') {
           if (SET.armed !== 'reminders') { SET.armed = 'reminders'; toast('Press OK again to clear all reminders'); }
           else { reminders.forEach(function (r) { remindersOff[r.id] = 1; }); reminders = []; saveReminders(); SET.armed = ''; toast('All reminders cleared'); renderSettings(); }
@@ -3254,6 +3487,9 @@
         if (now > 0) { S.playing.lastTime = now; S.playing.lastDur = Player.duration() || S.playing.lastDur; }
       }
       updateRecBadge();
+      // "Skip intro" goes away once the intro is over (or another title plays)
+      var po = S.playing;
+      if (!$('skip').classList.contains('hidden') && (!po || !po.introOffer || Player.time() > po.introOffer - 2000)) hideSkip();
     }, 1000);
     setInterval(savePos, 10000);
     // Home screen: clock every 15 s; weather/matches refresh on their own schedule.

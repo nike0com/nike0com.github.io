@@ -32,11 +32,32 @@ var Store = (function () {
   // Open the database right away so it is ready by the time the config is read.
   openDB(function () {});
 
-  function lsGet(key) {
-    try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
-  }
+  /*
+   * Profiles: these keys are kept per person (favorites, positions, watched, subtitles, teams…).
+   * The first profile ("main") uses the plain keys, so nothing changes for existing data.
+   * The profile is chosen before the app starts (js/boot.js); switching reloads the app.
+   */
+  var PER_PROFILE = /^(favs|favMovies|favSeries|ui|laterMovies|laterSeries|watched|subLang|pos|cw|last|reminders|remindersOff|favTeams|favTeamsCfg|subStyle|recent|homeRows|subDelay2:.*)$/;
+  function rawGet(key) { try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+  var profileId = rawGet('profile') || 'main';
+  function realKey(key) { return profileId !== 'main' && PER_PROFILE.test(key) ? 'p:' + profileId + ':' + key : key; }
+
+  function lsGet(key) { return rawGet(realKey(key)); }
   function lsSet(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); return true; } catch (e) { return false; }
+    try { localStorage.setItem(realKey(key), JSON.stringify(val)); return true; } catch (e) { return false; }
+  }
+
+  function profiles() {
+    var p = rawGet('profiles');
+    return p instanceof Array && p.length ? p : [{ id: 'main', name: 'Main' }];
+  }
+  function saveProfiles(list) { try { localStorage.setItem('profiles', JSON.stringify(list)); } catch (e) {} }
+  /** Removes everything a profile saved (not "main"). */
+  function dropProfileData(id) {
+    if (id === 'main') return;
+    var pre = 'p:' + id + ':', del = [];
+    for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf(pre) === 0) del.push(k); }
+    del.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
   }
 
   function get(key, cb) {
@@ -86,6 +107,11 @@ var Store = (function () {
       if (err) return cb('config.json not found. Copy config.example.json to config.json and set playlistUrl.');
       var cfg;
       try { cfg = JSON.parse(text); } catch (e) { return cb('config.json is not valid JSON: ' + e.message); }
+      // Subscription entered on the TV (Settings > Subscription) wins over config.json.
+      var ov = rawGet('cfgOverride');
+      if (cfg && ov && ov.server && ov.username && ov.password) {
+        cfg.server = ov.server; cfg.username = ov.username; cfg.password = ov.password; cfg.fromTV = true;
+      }
       if (!cfg || (!cfg.playlistUrl && !cfg.server)) return cb('config.json needs "playlistUrl" (or server/username/password).');
       if (cfg.showLogos === undefined) cfg.showLogos = true;
       if (!(cfg.live instanceof Array)) cfg.live = [];
@@ -132,6 +158,10 @@ var Store = (function () {
     put: put,
     lsGet: lsGet,
     lsSet: lsSet,
+    profile: function () { return profileId; },
+    profiles: profiles,
+    saveProfiles: saveProfiles,
+    dropProfileData: dropProfileData,
     xhrText: xhrText,
     loadConfig: loadConfig,
     downloadPlaylist: downloadPlaylist

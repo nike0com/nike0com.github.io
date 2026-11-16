@@ -379,6 +379,22 @@ svg .fill { fill: currentColor; stroke: none; }
 .mn-key.red { background: #e5383b; } .mn-key.green { background: #2bb24c; }
 .mn-key.yellow { background: #f2c230; color: #1a1205; } .mn-key.blue { background: #2f7cf6; }
 #mn-keys { font-size: 20px; color: #9aa4b4; margin: 16px 6px 0; }
+/* text entry (profile names, subscription) */
+#prompt {
+  position: absolute; left: 50%; top: 200px; width: 1000px; margin-left: -500px; z-index: 21;
+  padding: 40px 50px; border-radius: 30px; background: rgba(14,18,28,.98);
+  border: 2px solid rgba(123,92,255,.8); box-shadow: 0 30px 90px rgba(0,0,0,.75);
+}
+#prompt.hidden { display: none; }
+#pr-title { font-size: 30px; color: var(--gold); margin-bottom: 22px; }
+#pr-input { width: 100%; box-sizing: border-box; font-size: 38px; padding: 14px 20px; border-radius: 14px; border: 3px solid #fff; background: #1b2132; color: #fff; outline: none; }
+#pr-hint { font-size: 22px; color: #9aa4b4; margin-top: 18px; }
+/* skip intro button (episodes) */
+#skip {
+  position: absolute; right: 80px; bottom: 170px; z-index: 9; padding: 16px 28px; border-radius: 16px;
+  font-size: 30px; font-weight: bold; background: rgba(14,18,28,.9); border: 2px solid #fff;
+}
+#skip.hidden { display: none; }
 #goal {
   position: absolute; left: 50%; top: 50px; transform: translateX(-50%); z-index: 15;
   padding: 18px 40px; border-radius: 22px; font-size: 34px; font-weight: bold; white-space: nowrap;
