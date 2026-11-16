@@ -1,0 +1,139 @@
+
+  <object id="av-player" type="application/avplayer"></object>
+  <video id="html5-player" autoplay playsinline></video>
+
+  <div id="panel" class="hidden">
+    <div id="nav">
+      <div id="brand"><span>AsoosA</span></div>
+      <div class="nav-item" data-sec="home">
+        <svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/></svg>
+        <span>Home</span>
+      </div>
+      <div class="nav-item" data-sec="live">
+        <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="13" rx="2.5"/><path d="M8 21h8M8 2l4 3 4-3"/></svg>
+        <span>Live TV</span>
+      </div>
+      <div class="nav-item" data-sec="movies">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="M7.5 3v18M16.5 3v18M3 8.5h4.5M3 15.5h4.5M16.5 8.5H21M16.5 15.5H21"/></svg>
+        <span>Movies</span>
+      </div>
+      <div class="nav-item" data-sec="series">
+        <svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="13" rx="2.5"/><path d="M6 5h12M8.5 2h7"/><path d="M10.5 12v5l4-2.5z" class="fill"/></svg>
+        <span>Series</span>
+      </div>
+      <div class="nav-item" data-sec="rec">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" class="fill"/></svg>
+        <span>Recordings</span>
+      </div>
+      <div class="nav-item" data-sec="settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        <span>Settings</span>
+      </div>
+    </div>
+
+    <div id="groups-col" class="col">
+      <div class="col-title">Categories</div>
+      <div id="groups" class="vlist"><div class="thumb"></div></div>
+    </div>
+
+    <div id="ch-col" class="col">
+      <div class="ch-head">
+        <div id="search-box" class="btn">
+          <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+          <input id="search" type="text" placeholder="Search" autocomplete="off" dir="auto">
+        </div>
+        <div id="rec-btn" class="btn"></div>
+        <div id="refresh-btn" class="btn">
+          <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh
+        </div>
+      </div>
+      <div id="ch-title" class="col-title"></div>
+      <div id="hero">
+        <div id="hero-title" dir="auto"></div>
+        <div id="hero-meta"></div>
+        <div id="hero-plot" dir="auto"></div>
+      </div>
+      <div id="channels" class="vlist"><div class="thumb"></div></div>
+      <div id="grid" class="vgrid"><div class="thumb"></div></div>
+      <div id="list-msg"></div>
+    </div>
+
+    <div id="hints"></div>
+
+    <div id="home">
+      <div id="h-top">
+        <div id="h-clock"><div id="h-time"></div><div id="h-date"></div></div>
+        <div id="h-weather">
+          <div id="hw-icon"></div>
+          <div id="hw-now"><div id="hw-temp"></div><div id="hw-text"></div></div>
+          <div id="hw-days"></div>
+        </div>
+      </div>
+      <div id="h-view"><div id="h-rows"></div></div>
+    </div>
+
+    <div id="settings">
+      <div id="set-title">Settings</div>
+      <div id="set-sub"></div>
+      <div id="set-rows"></div>
+    </div>
+
+    <div id="reader" class="hidden">
+      <img id="rd-img" alt="">
+      <div id="rd-body">
+        <div id="rd-title" dir="auto"></div>
+        <div id="rd-meta"></div>
+        <div id="rd-text" dir="auto"></div>
+        <div id="rd-hint">OK / BACK to close</div>
+      </div>
+    </div>
+
+    <div id="preview" class="hidden">
+      <div id="pv-frame"><img id="pv-img" alt=""><div id="pv-none">No cover</div></div>
+      <div id="pv-title" dir="auto"></div>
+      <div id="pv-meta"></div>
+      <div id="pv-plot" dir="auto"></div>
+    </div>
+  </div>
+
+  <div id="banner" class="hidden">
+    <div id="b-num"></div>
+    <img id="b-logo" alt="">
+    <div id="b-text">
+      <div id="b-name"></div>
+      <div id="b-sub"><span id="b-group"></span><span id="b-status"></span></div>
+      <div id="b-progress"><div id="b-track"><div id="b-bar"></div></div><span id="b-time"></span></div>
+      <div id="b-subs"></div>
+    </div>
+    <div id="b-clock"></div>
+  </div>
+
+  <div id="subs" class="hidden"></div>
+  <div id="rec-badge" class="hidden"><span class="dot"></span><span id="rec-text"></span></div>
+  <div id="digits" class="hidden"></div>
+  <div id="toast" class="hidden"></div>
+  <div id="goal" class="hidden"></div>
+
+  <div id="details" class="hidden">
+    <div id="dt-bg"></div>
+    <img id="dt-poster" alt="">
+    <div id="dt-body">
+      <div id="dt-title" dir="auto"></div>
+      <div id="dt-meta"></div>
+      <div id="dt-plot" dir="auto"></div>
+      <div id="dt-btns"></div>
+    </div>
+  </div>
+
+  <div id="trailer" class="hidden"><div id="tr-hint">BACK to close the trailer</div></div>
+  <div id="menu" class="hidden">
+    <div id="mn-title"></div>
+    <div id="mn-rows"></div>
+    <div id="mn-keys">Press the colour key, or ▲▼ and OK  ·  BACK closes  ·  no colour keys? press 123 on the remote</div>
+  </div>
+  <div id="alert" class="hidden">
+    <div id="al-title"></div>
+    <div id="al-body"></div>
+    <div id="al-keys"><span class="al-btn">OK</span> <span id="al-ok"></span>   <span class="al-btn">BACK</span> <span id="al-back"></span></div>
+  </div>
+
