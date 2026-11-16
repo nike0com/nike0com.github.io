@@ -175,6 +175,27 @@ var Player = (function () {
     return out;
   }
 
+  /** Audio tracks: [{ index, lang }] (the TV often leaves lang empty; the app reads it from the file). */
+  function audioTracks() {
+    var out = [];
+    if (!av) return out;
+    try {
+      var all = av.getTotalTrackInfo() || [];
+      for (var i = 0; i < all.length; i++) {
+        if (all[i].type !== 'AUDIO') continue;
+        var ex = all[i].extra_info, lang = '';
+        if (typeof ex === 'string') { try { ex = JSON.parse(ex); } catch (e) { ex = null; } }
+        if (ex && typeof ex === 'object') lang = ex.language || ex.track_lang || ex.lang || '';
+        out.push({ index: all[i].index, lang: String(lang) });
+      }
+    } catch (e) {}
+    return out;
+  }
+  function selectAudio(index) {
+    if (!av) return false;
+    try { av.setSelectTrack('AUDIO', index); return true; } catch (e) { return false; }
+  }
+
   /** Shift the TV's own subtitle timing (ms, negative = earlier). Returns false if not supported. */
   function setTextOffset(ms) {
     if (!av || !av.setSubtitlePosition) return false;
@@ -210,6 +231,7 @@ var Player = (function () {
   return {
     init: init, play: play, stop: stop, togglePause: togglePause,
     time: time, duration: duration, seekTo: seekTo, textTracks: textTracks, selectText: selectText, setTextOffset: setTextOffset,
-    suspend: suspend, restore: restore, setBuffering: setBuffering, speeds: speeds, setSpeed: setSpeed
+    suspend: suspend, restore: restore, setBuffering: setBuffering, speeds: speeds, setSpeed: setSpeed,
+    audioTracks: audioTracks, selectAudio: selectAudio
   };
 })();

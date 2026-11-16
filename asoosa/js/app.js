@@ -1260,6 +1260,47 @@
     if (subs.opts.length > 1 || tracks.length) toast('Subtitles available  ·  ▼ to choose', 3000);
   }
 
+  /*
+   * Audio language (e.g. English original / German dub in one file). The choice is remembered
+   * per series (and as the general preference for movies), and used again automatically.
+   */
+  function audioKey(p) { return p && p.kind === 'episode' && p.series ? 'audio:' + p.series.id : 'audioLang'; }
+  function setupAudio() {
+    var p = S.playing;
+    var tracks = Player.audioTracks();
+    var meta = p && p.posKey && subMeta[p.posKey] ? subMeta[p.posKey].audio : null;
+    tracks.forEach(function (t, i) {
+      var m = meta && meta[i];
+      t.code = langCode(m ? m.lang : t.lang);
+      t.name = m ? m.name : '';
+    });
+    S.audio = { tracks: tracks, pos: 0 };
+    if (tracks.length < 2) return;
+    var want = Store.lsGet(audioKey(p)) || Store.lsGet('audioLang');
+    for (var i = 0; i < tracks.length; i++) {
+      if (want && tracks[i].code === want) {
+        if (i !== 0) Player.selectAudio(tracks[i].index);
+        S.audio.pos = i;
+        break;
+      }
+    }
+    setTimeout(function () { if (S.playing === p) toast('Audio: ' + audioLabel() + '  ·  ' + tracks.length + ' languages  ·  hold OK to change', 3500); }, 3600);
+  }
+  function audioLabel() {
+    var a = S.audio, t = a && a.tracks[a.pos];
+    return t ? trackLabel(t, a.pos) : 'Default';
+  }
+  /** Next audio language; remembered for this series (and for movies in general). */
+  function cycleAudio() {
+    var a = S.audio;
+    if (!a || a.tracks.length < 2) return toast('Only one audio language in this file');
+    a.pos = (a.pos + 1) % a.tracks.length;
+    var t = a.tracks[a.pos];
+    Player.selectAudio(t.index);
+    if (t.code && t.code !== 'und') { Store.lsSet(audioKey(S.playing), t.code); Store.lsSet('audioLang', t.code); }
+    toast('Audio: ' + trackLabel(t, a.pos) + '  ' + (a.pos + 1) + '/' + a.tracks.length, 2500);
+  }
+
   /** DOWN: Arabic + German -> Arabic -> German -> Off. The choice is remembered for the next movie. */
   function cycleSubs() {
     var opts = S.subs.opts, idx = -1;
@@ -1356,7 +1397,7 @@
       var pl = S.playing;
       setTimeout(function () { if (S.playing === pl && Player.time() > 60000) pl.recoveries = 0; }, 30000);
     }
-    if (type === 'tracks') { setupSubs(); return; }
+    if (type === 'tracks') { setupSubs(); setupAudio(); return; }
     if (type === 'subtitle') { onEmbeddedSub(data); return; }
     if (type === 'buffering') { S.status = data ? 'Buffering ' + data + '%' : 'Loading…'; S.statusErr = false; }
     else if (type === 'playing') { S.status = ''; S.statusErr = false; }
@@ -1477,6 +1518,7 @@
     S.status = 'Loading…'; S.statusErr = false;
     S.seekBase = -1; S.seekDelta = 0;
     S.speed = 1;
+    S.audio = null;
     S.subs.token++;
     S.subs = freshSubs();
     hideSub();
@@ -1496,9 +1538,9 @@
     Player.stop();
     Store.get('probe:' + p.posKey, function (saved) {
       if (S.playing !== p) return;
-      if (saved && saved.v === 2) { subMeta[p.posKey] = saved; return go(); }
+      if (saved && saved.v === 3) { subMeta[p.posKey] = saved; return go(); }   // v3: audio languages too
       MKV.probe(p.url, 6000, function (res) {
-        res.v = 2;
+        res.v = 3;
         subMeta[p.posKey] = res;
         if (res.tracks || res.hash) Store.put('probe:' + p.posKey, res);
         if (S.playing === p) setTimeout(function () { if (S.playing === p) go(); }, 800);
@@ -2908,6 +2950,7 @@
       function add(key, label, run, stay) { items.push({ key: key, label: label, run: run, stay: stay }); }
       add('ENTER', '☰  ' + (vod ? 'Back to the list' : 'Channel list'), function () { openPanel('list'); });
       if (vod && p.kind !== 'rec') {
+        if (S.audio && S.audio.tracks.length > 1) add('', '♪  Audio: ' + audioLabel() + '  (' + (S.audio.pos + 1) + '/' + S.audio.tracks.length + ')', cycleAudio, true);
         add('', '»  Speed: ' + (S.speed || 1) + 'x', cycleSpeed, true);
         add('', '▤  ' + modeLabel(), cycleSubs, true);
         if (S.subs.tracks.length) add('GREEN', '▤  Next subtitle in the file', cycleEmbedded, true);

@@ -51,6 +51,7 @@ var MKV = (function () {
         if (id2 !== ID_TRACKS) return true;
         if (cut) return false;                           // need more bytes
         var subs = [];
+        subs.audio = [];                                 // audio tracks too (German dub / English…)
         each(b, s2, e2, function (id3, s3, e3) {
           if (id3 !== ID_ENTRY) return true;
           var t = { type: 0, lang: 'eng', ietf: '', name: '', forced: false }; // MKV default language is English
@@ -63,6 +64,7 @@ var MKV = (function () {
             return true;
           });
           if (t.type === 17) subs.push({ lang: t.ietf || t.lang, name: t.name, forced: t.forced });
+          else if (t.type === 2) subs.audio.push({ lang: t.ietf || t.lang, name: t.name });
           return true;
         });
         result = subs;
@@ -120,6 +122,7 @@ var MKV = (function () {
       used = Math.min(ab.byteLength, LIMIT);
       buf.set(new Uint8Array(ab, 0, used), 0);
       out.tracks = parse(buf.subarray(0, used));
+      out.audio = out.tracks ? out.tracks.audio : null;   // own field: saved copies keep only plain arrays
       if (used >= HASH_CHUNK) tail(); else finish();
     }).catch(finish);
   }
