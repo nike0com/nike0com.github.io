@@ -1067,8 +1067,11 @@
     var inf = key && S.subs.info[key.replace(/^l:/, '')];
     if (inf) inf.n = (inf.n || 0) + 1;                       // lines received from the TV's decoder
     S.subs.rawEvents = (S.subs.rawEvents || 0) + 1;
+    var txt = cleanText(d.text);
+    if (txt && txt !== S.subs.lastEmb) recordOnset(Player.time());   // reference for auto-sync
+    S.subs.lastEmb = txt;
     if (!key) return;
-    setSlot(key, cleanText(d.text));
+    setSlot(key, txt);
     later('subs', Math.min(Math.max(d.ms, 800), 10000), function () { setSlot(key, ''); });
   }
 
@@ -1078,9 +1081,65 @@
     for (var lang in on) {
       if (!on.hasOwnProperty(lang)) continue;
       any = true;
-      setSlot('l:' + lang, OpenSubs.cueAt(on[lang], Player.time() - (S.subs.delays[lang] || 0)));
+      var r = S.subs.delays[lang + ':r'] || 1;
+      setSlot('l:' + lang, OpenSubs.cueAt(on[lang], (Player.time() - (S.subs.delays[lang] || 0)) / r));
     }
     return any;
+  }
+
+  /*
+   * Auto-sync: an online subtitle (e.g. Arabic) is often made for another release and runs early,
+   * late, or drifts (25 vs 23.976 fps). The subtitle inside the file is in sync, so the moments
+   * its lines appear are compared with the online cues; the best shift (and speed) is applied.
+   * Skipped when you set the timing yourself (1/3, 4/6) for this title.
+   */
+  function recordOnset(t) {
+    var s = S.subs;
+    if (!t || !Object.keys(s.online).length) return;
+    s.onsets = s.onsets || [];
+    var last = s.onsets[s.onsets.length - 1];
+    if (last !== undefined && t - last < 400) return;
+    s.onsets.push(t);
+    if (s.onsets.length >= 12 && s.onsets.length % 6 === 0 && s.onsets.length <= 72) autoSync();
+  }
+
+  function autoSync() {
+    var s = S.subs, on = s.onsets, p = S.playing;
+    s.synced = s.synced || {};
+    for (var lang in s.online) {
+      if (!s.online.hasOwnProperty(lang) || s.synced[lang] || (s.manual && s.manual[lang])) continue;
+      if (s.delays[lang] && !s.delays[lang + ':a']) continue;       // timing you saved by hand earlier
+      var cues = s.online[lang];
+      if (cues.length < 20) continue;
+      var starts = cues.map(function (c) { return c.s; });
+      var best = { score: 0 }, second = 0;
+      [1, 25 / 23.976, 23.976 / 25].forEach(function (r) {
+        for (var d = -120000; d <= 120000; d += 200) {
+          var score = 0;
+          for (var i = 0; i < on.length; i++) {
+            // nearest cue start to the onset, in the online file's own time
+            var want = (on[i] - d) / r, lo = 0, hi = starts.length - 1;
+            while (lo < hi) { var mid = (lo + hi) >> 1; if (starts[mid] < want) lo = mid + 1; else hi = mid; }
+            var near = Math.min(Math.abs(starts[lo] - want), lo > 0 ? Math.abs(starts[lo - 1] - want) : 1e9);
+            if (near * r <= 450) score++;
+          }
+          if (score > best.score) { if (Math.abs(d - (best.d || 0)) > 2000 || best.r !== r) second = best.score; best = { score: score, d: d, r: r }; }
+          else if (score > second && (Math.abs(d - best.d) > 2000 || r !== best.r)) second = score;
+        }
+      });
+      // Confident only with most lines matching and a clear winner.
+      if (best.score < Math.max(9, on.length * 0.5) || best.score < second * 1.4) continue;
+      s.synced[lang] = true;
+      var old = s.delays[lang] || 0, oldR = s.delays[lang + ':r'] || 1;
+      if (Math.abs(best.d - old) < 300 && best.r === oldR) continue;   // already right
+      s.delays[lang] = best.d;
+      s.delays[lang + ':r'] = best.r === 1 ? undefined : best.r;
+      s.delays[lang + ':a'] = 1;                                     // set automatically
+      if (p && p.posKey) Store.lsSet('subDelay2:' + p.posKey, s.delays);
+      tickOnline();
+      toast(langLabel(lang) + ' subtitles synced automatically  ·  ' + (best.d > 0 ? '+' : '') + (best.d / 1000).toFixed(1) + ' s' +
+        (best.r !== 1 ? '  ·  speed corrected' : ''), 4000);
+    }
   }
 
   /** First full (not "forced") embedded track in a language, else a forced one, else -1. */
@@ -1169,7 +1228,7 @@
     } else if (o.type === 'lang') {
       var p1 = findTrack(o.lang);
       if (p1 >= 0) { Player.selectText(t[p1].index); S.subs.embKey = 'l:' + o.lang; S.subs.info[o.lang] = { src: 'file', track: p1 + 1, n: 0 }; }
-      else { Player.selectText(-1); loadOnline(o.lang); }
+      else { referenceTrack(); loadOnline(o.lang); }
       S.subs.order = ['l:' + o.lang];
       label = langLabel(o.lang) + (p1 < 0 ? ' (online)' : '');
     } else {
@@ -1182,13 +1241,24 @@
           S.subs.info[embLang] = { src: 'file', track: pos + 1, n: 0 };
         }
       }
-      if (embLang === null) Player.selectText(-1);
+      if (embLang === null) referenceTrack();
       S.subs.order = ['l:' + pair[0], 'l:' + pair[1]];
       for (k = 0; k < pair.length; k++) if (pair[k] !== embLang) loadOnline(pair[k]);
       label = langLabel(pair[0]) + ' + ' + langLabel(pair[1]);
     }
     applyEmbOffset();
     if (announce) toast('Subtitles: ' + label + hint, 3000);
+  }
+
+  /**
+   * Only online subtitles showing: still let the TV decode one subtitle of the file (not drawn),
+   * as the timing reference for auto-sync. No file subtitles: nothing to compare with.
+   */
+  function referenceTrack() {
+    var t = S.subs.tracks, pick = -1;
+    for (var i = 0; i < t.length && pick < 0; i++) if (!t[i].forced) pick = i;
+    if (pick < 0 && t.length) pick = 0;
+    Player.selectText(pick >= 0 ? t[pick].index : -1);
   }
 
   /** "Subtitles: Arabic + German" for the current mode, used as the start of every subtitle message. */
@@ -1349,6 +1419,9 @@
     var d = (S.subs.delays[lang] || 0) + ms;
     if (fromFile && !Player.setTextOffset(d)) return toast('This TV cannot shift ' + langLabel(lang) + ' subtitles from the file');
     S.subs.delays[lang] = d;
+    S.subs.manual = S.subs.manual || {};
+    S.subs.manual[lang] = true;                           // your own timing: auto-sync leaves it alone
+    delete S.subs.delays[lang + ':a'];
     Store.lsSet('subDelay2:' + S.playing.posKey, S.subs.delays);
     if (online) tickOnline();
     toast(langLabel(lang) + ' subtitle timing: ' + (d > 0 ? '+' : '') + (d / 1000).toFixed(1) + ' s' +
