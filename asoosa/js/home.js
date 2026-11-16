@@ -74,9 +74,9 @@ var HomeData = (function () {
     };
   }
 
-  /** One ESPN league: its current matchday (today's games, or the next matchday when there are none). */
-  function espn(league, cb) {
-    getJSON('https://site.api.espn.com/apis/site/v2/sports/soccer/' + league + '/scoreboard', function (err, d) {
+  /** One ESPN league: its current matchday (today's games, or the next matchday when there are none), or one day (YYYYMMDD). */
+  function espn(league, cb, day) {
+    getJSON('https://site.api.espn.com/apis/site/v2/sports/soccer/' + league + '/scoreboard' + (day ? '?dates=' + day : ''), function (err, d) {
       if (err || !d) return cb([]);
       var name = (d.leagues && d.leagues[0] && (d.leagues[0].abbreviation || d.leagues[0].name)) || league;
       var out = [], evs = d.events || [];
@@ -85,9 +85,9 @@ var HomeData = (function () {
     });
   }
 
-  /** A team's upcoming fixtures in every competition (league scoreboards only show today). */
-  function teamFixtures(id, cb) {
-    getJSON('https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/' + id + '/schedule?fixture=true', function (err, d) {
+  /** A team's upcoming fixtures (or, with past, its played games) in every competition. */
+  function teamFixtures(id, cb, past) {
+    getJSON('https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/' + id + '/schedule' + (past ? '' : '?fixture=true'), function (err, d) {
       if (err || !d) return cb([]);
       var out = [], evs = d.events || [];
       for (var i = 0; i < evs.length; i++) {
@@ -154,6 +154,32 @@ var HomeData = (function () {
     });
     teamIds.forEach(function (id) { teamFixtures(id, done); });
     if (cfg.egypt) egypt(done);
+  }
+
+  /**
+   * Finished matches of the last `days` days: every league day by day, the national teams' own
+   * results and the Egyptian league's last results. cb(list), newest first.
+   */
+  function results(cfg, days, cb) {
+    var out = [], pending = 0, since = Date.now() - (days + 0.5) * 86400000;
+    function done(list) {
+      // (Egyptian league: its last result, even when it is a few days older)
+      list.forEach(function (m) { if (m.state === 'done' && (m.time >= since || (m.code === 'egypt' && Date.now() - m.time < 8 * 86400000))) out.push(m); });
+      if (--pending) return;
+      var seen = {};
+      out = out.filter(function (m) { var k = m.id || (m.home + m.away + m.time); if (seen[k]) return false; seen[k] = 1; return true; });
+      out.sort(function (a, b) { return b.time - a.time; });
+      cb(out);
+    }
+    var leagues = cfg.leagues || [];
+    for (var d = 1; d <= days; d++) {
+      var dt = new Date(Date.now() - d * 86400000);
+      var ds = '' + dt.getFullYear() + (dt.getMonth() < 9 ? '0' : '') + (dt.getMonth() + 1) + (dt.getDate() < 10 ? '0' : '') + dt.getDate();
+      leagues.forEach(function (lg) { pending++; espn(lg, done, ds); });
+    }
+    (cfg.teamIds || []).forEach(function (id) { pending++; teamFixtures(id, done, true); });
+    if (cfg.egypt) { pending++; egypt(done); }
+    if (!pending) cb([]);
   }
 
   /* ---------- news (RSS) ---------- */
@@ -267,42 +293,8 @@ var HomeData = (function () {
     });
   }
 
-  /* ---------- match highlights (YouTube channel feeds, no key) ---------- */
-
-  var HL_WORDS = /highlight|ملخص|zusammenfassung|resumen|sintesi/i;
-
-  /** Highlight videos from the channels' latest uploads; cb([{ id, title, source, time, image }]) newest first. */
-  function highlights(channels, cb) {
-    var out = [], pending = channels.length;
-    if (!pending) return cb([]);
-    channels.forEach(function (ch) {
-      getText('https://www.youtube.com/feeds/videos.xml?channel_id=' + ch.id, function (err, xml) {
-        if (!err) {
-          try {
-            var doc = new DOMParser().parseFromString(xml, 'text/xml'), es = doc.getElementsByTagName('entry');
-            for (var i = 0; i < es.length; i++) {
-              var id = tagText(es[i], 'yt:videoId'), title = tagText(es[i], 'title');
-              if (id && HL_WORDS.test(title)) {
-                out.push({ id: id, title: title, source: ch.name, time: Date.parse(tagText(es[i], 'published')) || 0, image: 'https://i.ytimg.com/vi/' + id + '/mqdefault.jpg' });
-              }
-            }
-          } catch (e) {}
-        }
-        if (--pending === 0) {
-          out.sort(function (a, b) { return b.time - a.time; });
-          cb(out);
-        }
-      });
-    });
-  }
-
-  /** cb(true) when the owner allows the video to play in other pages (else YouTube shows an error). */
-  function embeddable(id, cb) {
-    getText('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent('https://www.youtube.com/watch?v=' + id), function (err) { cb(!err); });
-  }
-
   return {
     weather: weather, describe: describe, matches: matches, news: news,
-    prayer: prayer, rates: rates, standings: standings, egyptTable: egyptTable, highlights: highlights, embeddable: embeddable
+    prayer: prayer, rates: rates, standings: standings, egyptTable: egyptTable, results: results
   };
 })();

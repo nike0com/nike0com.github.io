@@ -1961,26 +1961,17 @@
       prayer: h.prayer || { method: 3, notify: true },
       rates: h.rates || [['CHF', 'EGP'], ['EUR', 'EGP'], ['USD', 'EGP'], ['EUR', 'CHF'], ['USD', 'CHF']],
       tables: h.tables || ['egypt', 'eng.1', 'esp.1', 'ger.1', 'ita.1'],
-      // YouTube channels whose newest uploads include match highlights.
-      highlights: h.highlights || [
-        { name: 'beIN SPORTS', id: 'UCJUCcJUeh0Cz2xyKwkw5Q1w' },
-        { name: 'SRF Sport', id: 'UC5vaBYHzkZvJkjGSNrz5tWQ' },
-        { name: 'Serie A', id: 'UCBJeMCIeLQos7wacox4hmLQ' },
-        { name: 'Bundesliga', id: 'UC6UL29enLNe4mqwTfAyeNuw' },
-        { name: 'Premier League', id: 'UCG5qGWdu8nIRZqJ_GgDwQ-w' }
-      ],
-      // Arabic names of favorite teams, to find them in Arabic video titles.
-      teamAliases: h.teamAliases || { 'egypt': 'مصر', 'switzerland': 'سويسرا', 'zamalek': 'الزمالك', 'real madrid': 'ريال مدريد', 'al ahly': 'الأهلي' }
+      resultDays: h.resultDays || 3            // "Results" row: finished matches of the last days
     };
   }
 
-  /* ---- Home extras: prayer times, exchange rates, league tables, highlights ---- */
+  /* ---- Home extras: prayer times, exchange rates, league tables, results ---- */
 
   var PRAYERS = [['Fajr', 'الفجر'], ['Sunrise', 'الشروق'], ['Dhuhr', 'الظهر'], ['Asr', 'العصر'], ['Maghrib', 'المغرب'], ['Isha', 'العشاء']];
   HOME.prayer = Store.lsGet('prayer') || {};          // { 'Mon Nov 16 2026': { Fajr: '05:44', … } } today + tomorrow
   HOME.rates = Store.lsGet('rates') || null;
   HOME.tables = {};
-  HOME.hl = null;
+  HOME.results = null;
 
   function prayerDate(day, hhmm) {
     var p = String(hhmm || '').split(':'), d = new Date(day);
@@ -2073,49 +2064,28 @@
     return homeCfg().tables.map(function (lg) { return HOME.tables[lg]; }).filter(function (t) { return t && t.rows.length; });
   }
 
-  /** Highlights: favorite teams first, then newest; only videos YouTube allows inside the app. */
-  function hlFav(v) {
-    var cfg = homeCfg(), title = ' ' + normName(v.title) + ' ', ar = v.title;
-    return favTeams().some(function (f) {
-      var n = normName(f), alias = cfg.teamAliases[n];
-      return (n.length >= 3 && title.indexOf(' ' + n + ' ') >= 0) || (alias && ar.indexOf(alias) >= 0);
-    });
-  }
-  function loadHighlights() {
-    HomeData.highlights(homeCfg().highlights, function (list) {
-      list.forEach(function (v) { v.fav = hlFav(v); });
-      list.sort(function (a, b) { return a.fav !== b.fav ? (a.fav ? -1 : 1) : b.time - a.time; });
-      // Every video stays; the ones whose owner blocks other players (beIN, SRF) open in the TV's YouTube app.
-      var cand = list.slice(0, 18), pending = cand.length;
-      if (!pending) { HOME.hl = []; return; }
-      cand.forEach(function (v) {
-        HomeData.embeddable(v.id, function (yes) {
-          v.embed = yes;
-          if (--pending) return;
-          HOME.hl = cand;
-          if (S.section === 'home') renderHomeRows();
-        });
-      });
-    });
-  }
-
   /**
-   * Videos whose owner allows them only on YouTube itself: open the TV's YouTube app on that video.
-   * BACK in YouTube (or the Home key) brings you back here.
+   * Results: finished matches of the last days (ESPN per day), plus today's finished ones and
+   * the Egyptian league's last results. Favorite teams first, then newest.
    */
-  function openYouTubeApp(id) {
-    var T = window.tizen;
-    if (!T || !T.application || !T.ApplicationControl) return toast('Open this video in the YouTube app');
-    savePos();
-    var ac = new T.ApplicationControl('http://tizen.org/appcontrol/operation/view', null, null, null,
-      [new T.ApplicationControlData('PAYLOAD', ['{"values": "v=' + id + '"}'])]);
-    var ids = ['9Ur5IzDKqV.TizenYouTube', '111299001912'];
-    (function tryNext(i) {
-      if (i >= ids.length) return toast('Could not open the YouTube app', 5000);
-      try {
-        T.application.launchAppControl(ac, ids[i], function () {}, function () { tryNext(i + 1); });
-      } catch (e) { tryNext(i + 1); }
-    })(0);
+  function loadResults() {
+    var cfg = homeCfg();
+    HomeData.results(cfg, cfg.resultDays, function (list) {
+      HOME.resultsOld = list;
+      if (S.section === 'home') renderHomeRows();
+    });
+  }
+  function resultCards() {
+    var seen = {}, out = [];
+    (HOME.matches || []).concat(HOME.resultsOld || []).forEach(function (m) {
+      if (m.state !== 'done') return;
+      var id = m.id || matchId(m);
+      if (seen[id]) return;
+      seen[id] = 1;
+      out.push(m);
+    });
+    out.sort(function (a, b) { var fa = isFavMatch(a), fb = isFavMatch(b); return fa !== fb ? (fa ? -1 : 1) : b.time - a.time; });
+    return out.slice(0, 30);
   }
 
   /** Full league table in the reader: two columns of ten. */
@@ -2188,7 +2158,7 @@
     loadPrayer(false);                                                  // only when a day is missing
     if (force || !HOME.rates || now - HOME.rates.at > 6 * 3600000) { if (!HOME.ratesLoading) { HOME.ratesLoading = true; setTimeout(function () { HOME.ratesLoading = false; }, 60000); loadRates(); } }
     if (force || now - (HOME.tablesAt || 0) > 30 * 60000) { HOME.tablesAt = now; loadTables(); }
-    if (force || now - (HOME.hlAt || 0) > 30 * 60000) { HOME.hlAt = now; loadHighlights(); }
+    if (force || now - (HOME.resultsAt || 0) > 30 * 60000) { HOME.resultsAt = now; loadResults(); }
     var anyLive = HOME.matches && HOME.matches.some(function (m) { return m.state === 'live'; });
     if (force || now - HOME.matchesAt > (anyLive ? 60000 : 5 * 60000)) {
       HOME.matchesAt = now;
@@ -2328,9 +2298,12 @@
       var fav = ms.filter(isFavMatch), rest = ms.filter(function (m) { return !isFavMatch(m); });
       ms = fav.concat(rest);
     }
+    // Live and upcoming here; finished matches go to "Results" below.
+    if (ms) ms = ms.filter(function (m) { return m.state !== 'done'; });
     rows.push({ id: 'matches', title: 'Matches', items: ms || [], empty: ms ? 'No matches in the next days' : 'Loading matches…' });
+    var res = resultCards();
+    rows.push({ id: 'results', title: 'Results', items: res, empty: HOME.resultsOld || HOME.matches ? 'No results in the last days' : 'Loading results…' });
     rows.push({ id: 'pray', title: 'Prayer times · ' + homeCfg().weather.name, items: prayerCards(), empty: 'Loading prayer times…' });
-    rows.push({ id: 'hl', title: 'Highlights', items: HOME.hl || [], empty: HOME.hl ? '' : 'Loading highlights…' });
     rows.push({ id: 'table', title: 'League tables', items: tableCards(), empty: 'Loading tables…' });
     homeCfg().news.forEach(function (feed, i) {
       var n = HOME.news[i];
@@ -2357,6 +2330,20 @@
     var imgs = box.getElementsByTagName('img');
     for (var k = 0; k < imgs.length; k++) imgs[k].onerror = function () { this.style.visibility = 'hidden'; };
     renderHomeFocus();
+  }
+
+  /** Result card: league + day, both teams with their goals, the winner in bold. */
+  function resultHtml(it) {
+    var d = new Date(it.time), today = new Date(), yest = new Date(Date.now() - 86400000);
+    var day = d.toDateString() === today.toDateString() ? 'Today' : d.toDateString() === yest.toDateString() ? 'Yesterday' : DAY_NAMES[d.getDay()] + ' ' + d.getDate();
+    var hs = parseInt(it.hs, 10), as = parseInt(it.as, 10), known = !isNaN(hs) && !isNaN(as);
+    function team(name, logo, g, win) {
+      return '<div class="m-team' + (win ? ' win' : '') + '"><img src="' + esc(logo) + '"><span class="m-name">' + esc(name) + '</span>' +
+        '<span class="m-score">' + (known ? g : '–') + '</span></div>';
+    }
+    return '<div class="hcard match result' + (isFavMatch(it) ? ' favteam' : '') + '">' +
+      '<div class="m-top"><span>' + (isFavMatch(it) ? '<b class="m-star">★</b> ' : '') + esc(it.league) + '</span><span>' + esc(day) + '  ·  FT</span></div>' +
+      team(it.home, it.homeLogo, hs, known && hs > as) + team(it.away, it.awayLogo, as, known && as > hs) + '</div>';
   }
 
   function cardHtml(type, it) {
@@ -2400,11 +2387,7 @@
       });
       return '<div class="hcard table"><div class="t-title">' + esc(it.name) + '</div>' + rowsH + '</div>';
     }
-    if (type === 'hl') {
-      return '<div class="hcard news pic hl' + (it.fav ? ' favteam' : '') + '"><img class="n-img" src="' + esc(it.image) + '"><span class="hl-play">▶</span>' +
-        '<div class="n-body"><div class="n-title" dir="auto">' + esc(it.title) + '</div><div class="n-meta">' +
-        esc((it.fav ? '★ ' : '') + it.source + (it.time ? '  ·  ' + ago(it.time) : '') + (it.embed ? '' : '  ·  YouTube app')) + '</div></div></div>';
-    }
+    if (type === 'results') return resultHtml(it);
     if (type === 'cw') {
       var pic = it.kind === 'episode' ? it.series && it.series.l : it.item.l;
       var title = it.kind === 'episode' ? cleanTitle(it.series.n) + ' ' + (it.item.n.split(' · ')[0] || '') : cleanTitle(it.item.n);
@@ -2457,9 +2440,8 @@
 
   function openHomeItem(type, it) {
     if (type === 'news') { openReader(it); return; }
-    if (type === 'hl') { if (it.embed) playTrailer(it.id); else openYouTubeApp(it.id); return; }
     if (type === 'table') { openTable(it); return; }
-    if (type === 'pray' || type === 'rate') return;
+    if (type === 'pray' || type === 'rate' || type === 'results') return;
     if (type === 'favs') {
       S.zapCtx = 'fav'; S.zap = { kind: 'live', list: favList() };
       playLive(it);

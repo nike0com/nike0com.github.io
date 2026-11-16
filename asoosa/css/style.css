@@ -322,11 +322,11 @@ svg .fill { fill: currentColor; stroke: none; }
 .tbl-row .tn img { width: 28px; height: 28px; object-fit: contain; vertical-align: middle; margin-right: 10px; }
 .tbl-head { color: var(--muted); font-size: 19px; }
 
-/* highlights */
-.hcard.hl .n-img { width: 250px; }
-.hcard.hl { width: 600px; }
-.hl-play { position: absolute; left: 100px; top: 50px; width: 50px; height: 50px; border-radius: 25px; background: rgba(0,0,0,.6); font-size: 24px; line-height: 50px; text-align: center; }
-.hcard.hl.favteam { box-shadow: inset 4px 0 0 var(--gold); }
+/* results */
+.hcard.match.result { height: 140px; }
+.hcard.match.result .m-team { color: var(--muted); }
+.hcard.match.result .m-team.win { color: #fff; font-weight: bold; }
+.m-star { color: var(--gold); }
 
 /* match card extras: favorite team, reminder */
 .hcard.match.favteam { box-shadow: inset 4px 0 0 var(--gold); }
