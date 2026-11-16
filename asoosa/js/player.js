@@ -38,10 +38,17 @@ var Player = (function () {
     }
   }
 
+  function errText(step, e) {
+    var n = e && (e.name || e.message) ? (e.name || '') + (e.message && e.message !== e.name ? ' ' + e.message : '') : String(e);
+    return n + ' (' + step + ')';
+  }
+
   function playAV(url, my, opts) {
     closeAV();
+    var step = 'open';
     try {
       av.open(url);
+      step = 'setup';
       av.setListener({
         onbufferingstart: function () { if (my === token) emit('buffering', 0); },
         onbufferingprogress: function (p) { if (my === token) emit('buffering', p); },
@@ -66,19 +73,35 @@ var Player = (function () {
           av.setBufferingParam('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', bufferSeconds);
         } catch (e) {}
       }
+      step = 'prepare';
       av.prepareAsync(function () {
         if (my !== token) return;
-        try {
-          av.play();
-          if (opts.startMs > 0) { try { av.seekTo(opts.startMs); } catch (e) {} }
-          emit('playing');
-          if (!opts.live) emit('tracks');
-        } catch (e) { emit('error', e.message); }
+        try { av.play(); } catch (e) { return failed('play', e); }
+        if (opts.startMs > 0) { try { av.seekTo(opts.startMs); } catch (e) {} }
+        // The app's own handlers run outside the player's try, so their mistakes never look like a player error.
+        try { emit('playing'); if (!opts.live) emit('tracks'); } catch (e) { if (window.console) console.log('player handler: ' + e); }
       }, function (err) {
-        if (my === token) emit('error', err && (err.name || err.message) || 'prepare failed');
+        if (my === token) failed('prepare', err);
       });
     } catch (e) {
-      emit('error', e.message || String(e));
+      failed(step, e);
+    }
+
+    /**
+     * InvalidStateError / InvalidAccessError mean the TV's player was still busy with the last
+     * stream: close it fully, wait a moment and try once more before reporting the error.
+     */
+    function failed(at, e) {
+      if (my !== token) return;
+      var name = (e && e.name) || '';
+      if (!opts.retried && /InvalidAccess|InvalidState/i.test(name + ' ' + (e && e.message))) {
+        opts.retried = true;
+        try { av.stop(); } catch (x) {}
+        try { av.close(); } catch (x2) {}
+        setTimeout(function () { if (my === token) playAV(url, my, opts); }, 1200);
+        return;
+      }
+      emit('error', errText(at, e));
     }
   }
 
