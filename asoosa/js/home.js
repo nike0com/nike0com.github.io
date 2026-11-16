@@ -251,6 +251,22 @@ var HomeData = (function () {
     });
   }
 
+  /** Egyptian Premier League table (TheSportsDB free tier: the top 5 only). Same shape as standings(). */
+  function egyptTable(cb) {
+    getJSON('https://www.thesportsdb.com/api/v1/json/123/lookuptable.php?l=4829', function (err, d) {
+      var t = d && d.table;
+      if (err || !t || !t.length) return cb(err || 'no table');
+      cb(null, {
+        name: 'Egyptian Premier League', partial: true,
+        rows: t.map(function (x) {
+          var gd = parseInt(x.intGoalDifference, 10) || 0;
+          return { rank: parseInt(x.intRank, 10) || 0, team: x.strTeam || '', names: [x.strTeam], logo: x.strBadge || '',
+            gp: x.intPlayed || '0', gd: (gd > 0 ? '+' : '') + gd, pts: x.intPoints || '0' };
+        }).sort(function (a, b) { return a.rank - b.rank; })
+      });
+    });
+  }
+
   /* ---------- match highlights (YouTube channel feeds, no key) ---------- */
 
   var HL_WORDS = /highlight|ملخص|zusammenfassung|resumen|sintesi/i;
@@ -287,6 +303,6 @@ var HomeData = (function () {
 
   return {
     weather: weather, describe: describe, matches: matches, news: news,
-    prayer: prayer, rates: rates, standings: standings, highlights: highlights, embeddable: embeddable
+    prayer: prayer, rates: rates, standings: standings, egyptTable: egyptTable, highlights: highlights, embeddable: embeddable
   };
 })();

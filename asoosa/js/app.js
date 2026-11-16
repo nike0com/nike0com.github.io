@@ -1960,7 +1960,7 @@
       // Prayer times (Aladhan; method 3 = Muslim World League) and a short notice at each adhan.
       prayer: h.prayer || { method: 3, notify: true },
       rates: h.rates || [['CHF', 'EGP'], ['EUR', 'EGP'], ['USD', 'EGP'], ['EUR', 'CHF'], ['USD', 'CHF']],
-      tables: h.tables || ['eng.1', 'esp.1', 'ger.1', 'ita.1'],
+      tables: h.tables || ['egypt', 'eng.1', 'esp.1', 'ger.1', 'ita.1'],
       // YouTube channels whose newest uploads include match highlights.
       highlights: h.highlights || [
         { name: 'beIN SPORTS', id: 'UCJUCcJUeh0Cz2xyKwkw5Q1w' },
@@ -2063,7 +2063,7 @@
   function loadTables() {
     var cfg = homeCfg(), pending = cfg.tables.length;
     cfg.tables.forEach(function (lg) {
-      HomeData.standings(lg, function (err, t) {
+      (lg === 'egypt' ? HomeData.egyptTable : function (cb) { HomeData.standings(lg, cb); })(function (err, t) {
         if (!err) { t.code = lg; HOME.tables[lg] = t; }
         if (--pending === 0 && S.section === 'home') renderHomeRows();
       });
@@ -2085,17 +2085,37 @@
     HomeData.highlights(homeCfg().highlights, function (list) {
       list.forEach(function (v) { v.fav = hlFav(v); });
       list.sort(function (a, b) { return a.fav !== b.fav ? (a.fav ? -1 : 1) : b.time - a.time; });
-      var cand = list.slice(0, 24), ok = [], pending = cand.length;
+      // Every video stays; the ones whose owner blocks other players (beIN, SRF) open in the TV's YouTube app.
+      var cand = list.slice(0, 18), pending = cand.length;
       if (!pending) { HOME.hl = []; return; }
-      cand.forEach(function (v, i) {
+      cand.forEach(function (v) {
         HomeData.embeddable(v.id, function (yes) {
-          if (yes) ok[i] = v;
+          v.embed = yes;
           if (--pending) return;
-          HOME.hl = ok.filter(function (x) { return x; }).slice(0, 16);
+          HOME.hl = cand;
           if (S.section === 'home') renderHomeRows();
         });
       });
     });
+  }
+
+  /**
+   * Videos whose owner allows them only on YouTube itself: open the TV's YouTube app on that video.
+   * BACK in YouTube (or the Home key) brings you back here.
+   */
+  function openYouTubeApp(id) {
+    var T = window.tizen;
+    if (!T || !T.application || !T.ApplicationControl) return toast('Open this video in the YouTube app');
+    savePos();
+    var ac = new T.ApplicationControl('http://tizen.org/appcontrol/operation/view', null, null, null,
+      [new T.ApplicationControlData('PAYLOAD', ['{"values": "v=' + id + '"}'])]);
+    var ids = ['9Ur5IzDKqV.TizenYouTube', '111299001912'];
+    (function tryNext(i) {
+      if (i >= ids.length) return toast('Could not open the YouTube app', 5000);
+      try {
+        T.application.launchAppControl(ac, ids[i], function () {}, function () { tryNext(i + 1); });
+      } catch (e) { tryNext(i + 1); }
+    })(0);
   }
 
   /** Full league table in the reader: two columns of ten. */
@@ -2111,7 +2131,7 @@
     });
     $('rd-img').style.display = 'none';
     $('rd-title').textContent = t.name;
-    $('rd-meta').textContent = 'League table';
+    $('rd-meta').textContent = t.partial ? 'League table · top ' + t.rows.length + ' only (free data source)' : 'League table';
     $('rd-text').innerHTML = html + '</div>';
     $('reader').classList.add('table');
     $('reader').classList.remove('hidden');
@@ -2383,7 +2403,7 @@
     if (type === 'hl') {
       return '<div class="hcard news pic hl' + (it.fav ? ' favteam' : '') + '"><img class="n-img" src="' + esc(it.image) + '"><span class="hl-play">▶</span>' +
         '<div class="n-body"><div class="n-title" dir="auto">' + esc(it.title) + '</div><div class="n-meta">' +
-        esc((it.fav ? '★ ' : '') + it.source + (it.time ? '  ·  ' + ago(it.time) : '')) + '</div></div></div>';
+        esc((it.fav ? '★ ' : '') + it.source + (it.time ? '  ·  ' + ago(it.time) : '') + (it.embed ? '' : '  ·  YouTube app')) + '</div></div></div>';
     }
     if (type === 'cw') {
       var pic = it.kind === 'episode' ? it.series && it.series.l : it.item.l;
@@ -2437,7 +2457,7 @@
 
   function openHomeItem(type, it) {
     if (type === 'news') { openReader(it); return; }
-    if (type === 'hl') { playTrailer(it.id); return; }
+    if (type === 'hl') { if (it.embed) playTrailer(it.id); else openYouTubeApp(it.id); return; }
     if (type === 'table') { openTable(it); return; }
     if (type === 'pray' || type === 'rate') return;
     if (type === 'favs') {
