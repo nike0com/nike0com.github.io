@@ -9,7 +9,7 @@
   var GRID = { cols: 6, tileW: 180, gap: 26, rowH: 324, height: 660, pad: 12 };  // movies / series posters
   var ZAP_DELAY = 280;      // ms to wait while zapping quickly before opening the stream
   var BANNER_MS = 4000;
-  var SECTIONS = ['home', 'live', 'movies', 'series', 'rec', 'settings'];
+  var SECTIONS = ['home', 'live', 'movies', 'series', 'radio', 'rec', 'settings'];
 
   var S = {
     cfg: null, acc: null,            // config + Xtream account (null = plain M3U mode)
@@ -469,6 +469,115 @@
     chList.select(back, true);
   }
 
+  /* ---------------- Radio & Quran ---------------- */
+
+  var RADIO = { lists: {}, loading: {}, errors: {} };
+  S.radioFavs = Store.lsGet('favRadio') || [];
+  S.reciter = null;                                     // { r, list, backSel } while a reciter's surahs are open
+
+  function radioView(gi) {
+    var out = { kind: 'radio', view: [], title: '', msg: '' };
+    if (S.reciter) {
+      out.kind = 'surah';
+      out.view = S.query ? searchIn(S.reciter.list, lowerName, S.query) : S.reciter.list;
+      out.title = S.reciter.r.n + '  ·  ' + out.view.length + ' surahs' + (S.reciter.r.rewaya ? '  ·  ' + S.reciter.r.rewaya : '');
+      return out;
+    }
+    if (!gi) return out;
+    var id = gi.id, list = id === 'rfav' ? S.radioFavs : RADIO.lists[id];
+    if (id === 'reciters') out.kind = 'reciter';
+    if (!list) {
+      out.msg = RADIO.errors[id] ? 'Could not load this list:\n' + RADIO.errors[id] : 'Loading…';
+      if (!RADIO.errors[id]) loadRadioList(id);
+      return out;
+    }
+    if (S.query) list = searchIn(list, lowerName, S.query);
+    out.view = list;
+    out.title = splitLabel(gi.label).name + '  ·  ' + list.length;
+    if (!list.length) out.msg = S.query ? 'No matches' : id === 'rfav' ? 'No favorite stations yet.\nPress GREEN on a station.' : 'No stations';
+    return out;
+  }
+
+  function loadRadioList(id) {
+    if (RADIO.loading[id]) return;
+    RADIO.loading[id] = true;
+    var fn = id === 'quranlive' ? RadioData.quranRadios : id === 'reciters' ? RadioData.reciters
+      : function (cb) { RadioData.stations(id.substring(3), cb); };
+    fn(function (err, items) {
+      RADIO.loading[id] = false;
+      if (err) RADIO.errors[id] = err; else RADIO.lists[id] = items || [];
+      var gi = S.groupItems[S.groupSel];
+      if (S.section === 'radio' && !S.reciter && gi && gi.id === id) applyView(false);
+    });
+  }
+
+  function openReciter(r) {
+    toast('Loading surahs…', 0);
+    RadioData.suwar(function (err, names) {
+      if (err) return toast('Could not load the surahs: ' + err, 5000);
+      $('toast').classList.add('hidden');
+      var list = r.surahs.map(function (n) {
+        return { id: r.id + ':' + n, num: n, n: (n < 10 ? '00' : n < 100 ? '0' : '') + n + '  ' + (names[n] || 'Surah ' + n) };
+      });
+      S.reciter = { r: r, list: list, backSel: chList.sel };
+      S.query = ''; S.queryLabel = ''; $('search').value = '';
+      applyView(true);
+      setFocus('list');
+    });
+  }
+  function closeReciter() {
+    var back = S.reciter ? S.reciter.backSel : 0;
+    S.reciter = null;
+    applyView(false);
+    chList.select(back, true);
+  }
+
+  function playRadio(st) {
+    startPlaying({ kind: 'radio', id: st.id, url: st.u, title: st.n, sub: st.tag || 'Radio', logo: st.l, ext: 'mp3', item: st });
+    RadioData.clicked(st.rb);
+  }
+  function playSurah(s, r) {
+    startPlaying({ kind: 'surah', id: s.id, url: RadioData.surahUrl(r, s.num), title: s.n.replace(/^\d+\s+/, 'سورة '), sub: r.n, logo: '', ext: 'mp3', item: s });
+  }
+
+  function isRadioFav(id) { return S.radioFavs.some(function (x) { return x.id === id; }); }
+  function toggleRadioFav(st) {
+    if (!st) return;
+    var pos = -1;
+    S.radioFavs.forEach(function (x, i) { if (x.id === st.id) pos = i; });
+    if (pos >= 0) { S.radioFavs.splice(pos, 1); toast('Removed from favorites: ' + st.n); }
+    else { S.radioFavs.unshift({ id: st.id, n: st.n, l: st.l, u: st.u, tag: st.tag, rb: st.rb }); toast('Added to favorites: ' + st.n); }
+    Store.lsSet('favRadio', S.radioFavs);
+    var gi = S.groupItems[S.groupSel];
+    if (S.section === 'radio' && !S.reciter && gi && gi.id === 'rfav') applyView(false); else chList.invalidate();
+    updateNowPlaying();
+  }
+
+  /** Radio and Quran have no picture: a "now playing" screen instead of black. */
+  function updateNowPlaying() {
+    var p = S.playing, on = p && (p.kind === 'radio' || p.kind === 'surah');
+    $('np').classList[on ? 'remove' : 'add']('hidden');
+    if (!on) return;
+    var img = $('np-logo');
+    if (p.logo) { img.style.display = ''; img.src = p.logo; } else img.style.display = 'none';
+    $('np-letter').textContent = p.kind === 'surah' ? '۞' : String(p.title || '?').charAt(0).toUpperCase();
+    $('np-title').textContent = p.title;
+    $('np-sub').textContent = (p.kind === 'radio' && isRadioFav(p.id) ? '★  ' : '') + (p.sub || '');
+    $('np-hint').textContent = p.kind === 'surah'
+      ? 'CH ▲▼ next / previous surah  ·  ◄ ► rewind / forward  ·  OK list'
+      : 'CH ▲▼ next station  ·  GREEN favorite  ·  OK list  ·  BACK stop';
+  }
+
+  /** BACK while a radio plays: stop it and show the station list. */
+  function stopRadio() {
+    Player.stop();
+    S.playing = null;
+    S.status = '';
+    hideBanner();
+    updateNowPlaying();
+    openPanel('list');
+  }
+
   /* ---------------- recordings list ---------------- */
 
   function loadRecordings() {
@@ -501,6 +610,11 @@
         items.push({ id: 'foryou', label: '♥ For you' });
       }
       for (var j = 0; j < cats.length; j++) items.push({ id: 'c:' + cats[j].id, label: cats[j].name, catId: cats[j].id });
+    } else if (sec === 'radio') {
+      items.push({ id: 'rfav', label: '★ Favorites' });
+      items.push({ id: 'quranlive', label: 'Quran radio · إذاعات القرآن' });
+      items.push({ id: 'reciters', label: 'Quran by reciter · القراء' });
+      RadioData.GROUPS.forEach(function (g) { items.push({ id: 'rg:' + g[0], label: g[1], rgroup: g[0] }); });
     } else {
       items.push({ id: 'rec', label: 'USB recordings' });
     }
@@ -508,6 +622,7 @@
     var want = S.groupMem[sec], sel = 0;
     // Movies/series open on the first real category, not the (maybe empty) favorites, unless you chose it before.
     if (!want && sec !== 'live') for (var f = 0; f < items.length; f++) if (items[f].catId !== undefined) { sel = f; break; }
+    if (!want && sec === 'radio') for (var q = 0; q < items.length; q++) if (items[q].id === 'quranlive') { sel = q; break; }
     for (var k = 0; k < items.length; k++) if (items[k].id === want) { sel = k; break; }
     S.groupSel = sel;
     grList.setCount(items.length, sel);
@@ -519,6 +634,7 @@
     S.section = sec;
     S.query = ''; S.queryLabel = ''; $('search').value = '';
     S.episodes = null;
+    S.reciter = null;
     renderTabs();
     updateHints();
     $('panel').classList.remove('home');
@@ -635,6 +751,9 @@
           }
         }
       }
+    } else if (sec === 'radio') {
+      var rv = radioView(gi);
+      kind = rv.kind; view = rv.view; title = rv.title; msg = rv.msg;
     } else {
       kind = 'rec';
       if (S.recFiles) {
@@ -680,6 +799,7 @@
     S.groupSel = i;
     S.query = ''; S.queryLabel = ''; $('search').value = '';
     S.episodes = null;
+    S.reciter = null;
     grList.select(i);
     applyView(true);
     S.groupMem[S.section] = S.groupItems[i] ? S.groupItems[i].id : '';
@@ -718,6 +838,14 @@
       r._q.style.display = 'none';
       r._num.textContent = i + 1;
       r._name.textContent = it.n;
+      if (kind === 'radio' || kind === 'reciter' || kind === 'surah') {
+        r._num.textContent = i + 1;
+        r._name.textContent = it.n;
+        r._fav.textContent = kind === 'radio' && isRadioFav(it.id) ? '★' : kind === 'reciter' ? '›' : '';
+        if (kind === 'radio') setLogo(r._logo, it.l); else r._logo.style.display = 'none';
+        if (isPlayingRow(i)) r.classList.add('playing'); else r.classList.remove('playing');
+        return;
+      }
       var favSec = kind === 'movie' ? 'movies' : kind === 'series' ? 'series' : '';
       r._fav.textContent = favSec && isFavItem(favSec, it.id) ? '★' : kind === 'series' ? '›' : kind === 'episode' && isWatched('e' + it.id) ? '✓' : '';
       if (kind === 'movie' || kind === 'series') setLogo(r._logo, it.l);
@@ -923,7 +1051,7 @@
 
   /* ---------------- banner ---------------- */
 
-  function isVod() { return S.playing && S.playing.kind !== 'live'; }
+  function isVod() { return S.playing && S.playing.kind !== 'live' && S.playing.kind !== 'radio'; }
 
   function renderBanner() {
     var p = S.playing;
@@ -1490,6 +1618,10 @@
     var p = S.playing;
     if (recoverVod('stream ended early')) return;
     if (p) { clearPos(p.posKey); finishedTitle(p); }
+    if (p && p.kind === 'surah' && S.zap.kind === 'surah') {
+      var sp = indexById(S.zap.list, p.id);
+      if (sp >= 0 && sp + 1 < S.zap.list.length) { playSurah(S.zap.list[sp + 1], S.zap.reciter); return; }
+    }
     if (p && p.kind === 'episode' && S.zap.kind === 'episode') {
       var pos = indexById(S.zap.list, p.id);
       if (pos >= 0 && pos + 1 < S.zap.list.length) { nextUp(S.zap.list[pos + 1], S.zap.series); return; }
@@ -1594,6 +1726,7 @@
     }
     savePos();
     S.playing = p;
+    updateNowPlaying();
     S.status = 'Loading…'; S.statusErr = false;
     S.seekBase = -1; S.seekDelta = 0;
     S.speed = 1;
@@ -1616,7 +1749,7 @@
     var startMs = p.posKey && positions[p.posKey] ? positions[p.posKey] : 0;
     if (startMs) toast('Resuming at ' + fmtTime(startMs) + ' · ◄ to rewind', 3000);
     clearTimeout(timers.zap);
-    var go = function () { Player.play(p.url, { live: p.kind === 'live', startMs: startMs }); };
+    var go = function () { Player.play(p.url, { live: p.kind === 'live' || p.kind === 'radio', startMs: startMs }); };
     if (opts.debounce) { timers.zap = setTimeout(go, ZAP_DELAY); return; }
     var vod = p.kind === 'movie' || p.kind === 'episode';
     var wantProbe = vod && (/^mkv$/i.test(p.ext || '') || OpenSubs.enabled());
@@ -1677,6 +1810,12 @@
       if (pos < 0 || pos >= S.zap.list.length) return toast(dir > 0 ? 'Last episode' : 'First episode');
       return playEpisode(S.zap.list[pos], S.zap.series);
     }
+    if (p && (p.kind === 'radio' || p.kind === 'surah') && S.zap.kind === p.kind) {
+      var rp = indexById(S.zap.list, p.id) + dir, rl = S.zap.list;
+      if (!rl.length) return;
+      rp = (rp + rl.length) % rl.length;
+      return p.kind === 'radio' ? playRadio(rl[rp]) : playSurah(rl[rp], S.zap.reciter);
+    }
     if (p && p.kind !== 'live') return;
     var list = S.zap.kind === 'live' && S.zap.list.length ? S.zap.list : S.live.allIdx;
     if (!list.length) return;
@@ -1699,6 +1838,9 @@
     if (it === undefined) return;
     var kind = S.viewKind;
     if (kind === 'series') return openSeries(it);
+    if (kind === 'reciter') return openReciter(it);
+    if (kind === 'radio') { S.zap = { kind: 'radio', list: S.view.slice() }; playRadio(it); return; }
+    if (kind === 'surah') { S.zap = { kind: 'surah', list: S.view.slice(), reciter: S.reciter.r }; playSurah(it, S.reciter.r); return; }
     if (isPlayingRow(chList.sel)) { closePanel(); showBanner(); return; }
     if (kind === 'live') {
       if (S.query) { S.zapCtx = 'all'; S.zap = { kind: 'live', list: S.view.slice() }; }
@@ -1974,6 +2116,7 @@
       case 'GREEN':
         if (vod) cycleEmbedded();
         else if (S.playing && S.playing.kind === 'live' && S.playing.idx >= 0) toggleFav(S.playing.idx);
+        else if (S.playing && S.playing.kind === 'radio') toggleRadioFav(S.playing.item);
         break;
       case 'RED': refresh(); break;
       case 'PLAYPAUSE': case 'PLAY': case 'PAUSE':
@@ -1981,6 +2124,7 @@
       case 'STOP': savePos(); Player.stop(); S.status = 'Stopped'; showBanner(true); break;
       case 'BACK':
         if (bannerVisible()) hideBanner();
+        else if (S.playing && S.playing.kind === 'radio') stopRadio();
         else if (vod) leaveVod();          // movie / episode / recording: back to the Home screen
         else backToExit();
         break;
@@ -2008,6 +2152,7 @@
     S.playing = null;
     S.status = '';
     hideBanner();
+    updateNowPlaying();
     switchSection('home');
     if (S.section === 'home') renderHome();
     openPanel('home');
@@ -2074,8 +2219,9 @@
             else if (S.viewKind === 'movie') toggleFavItem('movies', S.view[chList.sel]);
             else if (S.viewKind === 'series') toggleFavItem('series', S.view[chList.sel]);
             else if (S.viewKind === 'episode') toggleFavItem('series', S.episodes.series);
+            else if (S.viewKind === 'radio') toggleRadioFav(S.view[chList.sel]);
             break;
-          case 'BACK': if (S.episodes) closeSeries(); else panelBack(); break;
+          case 'BACK': if (S.episodes) closeSeries(); else if (S.reciter) closeReciter(); else panelBack(); break;
         }
         break;
 
@@ -3017,6 +3163,17 @@
         });
       });
     }
+    if (kind === 'radio') {
+      title = it.n;
+      add('ENTER', '▶  Listen', activateRow);
+      add('GREEN', isRadioFav(it.id) ? '★  Remove from favorites' : '☆  Add to favorites', function () { toggleRadioFav(it); });
+    } else if (kind === 'reciter') {
+      title = it.n;
+      add('ENTER', '☰  Surahs', activateRow);
+    } else if (kind === 'surah') {
+      title = it.n;
+      add('ENTER', '▶  Listen', activateRow);
+    }
     if (kind !== 'rec') add('YELLOW', '⌕  Search', function () { setFocus('search'); startTyping(); });
     add('BLUE', '☰  Categories', function () { setFocus('groups'); });
     showMenu(title, function () { return items; });
@@ -3041,18 +3198,19 @@
       if (vod && p.kind !== 'rec') {
         if (S.audio && S.audio.tracks.length > 1) add('', '♪  Audio: ' + audioLabel() + '  (' + (S.audio.pos + 1) + '/' + S.audio.tracks.length + ')', cycleAudio, true);
         add('', '»  Speed: ' + (S.speed || 1) + 'x', cycleSpeed, true);
-        add('', '▤  ' + modeLabel(), cycleSubs, true);
+        if (p.kind !== 'surah') add('', '▤  ' + modeLabel(), cycleSubs, true);
         if (S.subs.tracks.length) add('GREEN', '▤  Next subtitle in the file', cycleEmbedded, true);
       }
       if (!vod) {
-        if (p.idx >= 0) {
+        if (p.kind === 'radio') add('GREEN', isRadioFav(p.id) ? '★  Remove from favorites' : '☆  Add to favorites', function () { toggleRadioFav(p.item); }, true);
+        if (p.kind === 'live' && p.idx >= 0) {
           var c = S.live.channels[p.idx];
           add('GREEN', c && S.favs[chKey(c)] ? '★  Remove from favorites' : '☆  Add to favorites', function () { toggleFav(p.idx); }, true);
         }
-        add('', '▤  Subtitles: ' + liveSubLabel(), liveSubs, true);
+        if (p.kind === 'live') add('', '▤  Subtitles: ' + liveSubLabel(), liveSubs, true);
         add('RED', Recorder.current() ? '■  Stop recording' : '●  Record', toggleRecord);
       }
-      add('', 'Aa  Subtitle size: ' + SUB_SIZES[subStyle.size].n, function () { cycleSubStyle('size'); }, true);
+      if (p.kind !== 'radio' && p.kind !== 'surah') add('', 'Aa  Subtitle size: ' + SUB_SIZES[subStyle.size].n, function () { cycleSubStyle('size'); }, true);
       add('', '◑  Sleep timer: ' + sleepLabel(), cycleSleep, true);
       return items;
     });
