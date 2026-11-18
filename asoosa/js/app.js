@@ -532,8 +532,9 @@
     chList.select(back, true);
   }
 
-  function playRadio(st) {
-    startPlaying({ kind: 'radio', id: st.id, url: st.u, title: st.n, sub: st.tag || 'Radio', logo: st.l, ext: 'mp3', item: st });
+  function playRadio(st, gid) {
+    var prev = S.playing && S.playing.kind === 'radio' ? S.playing.gid : null;
+    startPlaying({ kind: 'radio', id: st.id, url: st.u, title: st.n, sub: st.tag || 'Radio', logo: st.l, ext: 'mp3', item: st, gid: gid || prev });
     RadioData.clicked(st.rb);
   }
   function playSurah(s, r) {
@@ -551,6 +552,22 @@
     var gi = S.groupItems[S.groupSel];
     if (S.section === 'radio' && !S.reciter && gi && gi.id === 'rfav') applyView(false); else chList.invalidate();
     updateNowPlaying();
+  }
+
+  /** OK while listening: the Radio list it was played from (or the reciter's surahs), on what is playing. */
+  function showPlayingRadio(p) {
+    function groupIndex(id) { for (var i = 0; i < S.groupItems.length; i++) if (S.groupItems[i].id === id) return i; return -1; }
+    if (p.kind === 'surah' && S.zap.kind === 'surah' && S.zap.reciter) {
+      if (!S.reciter || S.reciter.r.id !== S.zap.reciter.id) {
+        var ri = groupIndex('reciters');
+        if (ri >= 0) selectGroup(ri);
+        S.reciter = { r: S.zap.reciter, list: S.zap.list, backSel: 0 };
+        applyView(true);
+      }
+    } else if (p.kind === 'radio' && !S.reciter && playingPos() < 0 && p.gid) {
+      var gi = groupIndex(p.gid);
+      if (gi >= 0) selectGroup(gi);
+    }
   }
 
   /** Radio and Quran have no picture: a "now playing" screen instead of black. */
@@ -1020,8 +1037,10 @@
       hideBanner();
       var p = S.playing;
       if (p) {
-        var want = p.kind === 'live' ? 'live' : p.kind === 'movie' ? 'movies' : p.kind === 'rec' ? 'rec' : 'series';
+        var want = p.kind === 'live' ? 'live' : p.kind === 'movie' ? 'movies' : p.kind === 'rec' ? 'rec'
+          : p.kind === 'radio' || p.kind === 'surah' ? 'radio' : 'series';
         if (want !== S.section) switchSection(want);
+        if (want === 'radio') showPlayingRadio(p);
       }
       if (S.section === 'live' && p && p.kind === 'live' && p.idx >= 0 && !S.query && S.groupItems.length) {
         var pos = S.view.indexOf(p.idx);
@@ -1839,7 +1858,7 @@
     var kind = S.viewKind;
     if (kind === 'series') return openSeries(it);
     if (kind === 'reciter') return openReciter(it);
-    if (kind === 'radio') { S.zap = { kind: 'radio', list: S.view.slice() }; playRadio(it); return; }
+    if (kind === 'radio') { S.zap = { kind: 'radio', list: S.view.slice() }; playRadio(it, (S.groupItems[S.groupSel] || {}).id); return; }
     if (kind === 'surah') { S.zap = { kind: 'surah', list: S.view.slice(), reciter: S.reciter.r }; playSurah(it, S.reciter.r); return; }
     if (isPlayingRow(chList.sel)) { closePanel(); showBanner(); return; }
     if (kind === 'live') {
