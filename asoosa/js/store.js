@@ -37,7 +37,7 @@ var Store = (function () {
    * The first profile ("main") uses the plain keys, so nothing changes for existing data.
    * The profile is chosen before the app starts (js/boot.js); switching reloads the app.
    */
-  var PER_PROFILE = /^(favs|favMovies|favSeries|ui|laterMovies|laterSeries|watched|subLang|pos|cw|last|reminders|remindersOff|favTeams|favTeamsCfg|subStyle|recent|homeRows|audioLang|subDelay2:.*|audio:.*)$/;
+  var PER_PROFILE = /^(favs|favMovies|favSeries|ui|laterMovies|laterSeries|watched|subLang|pos|cw|last|reminders|remindersOff|favTeams|favTeamsCfg|subStyle|recent|homeRows|audioLang|favRadio|quranTr|khatma|subDelay2:.*|audio:.*)$/;
   function rawGet(key) { try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
   var profileId = rawGet('profile') || 'main';
   function realKey(key) { return profileId !== 'main' && PER_PROFILE.test(key) ? 'p:' + profileId + ':' + key : key; }

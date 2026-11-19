@@ -568,3 +568,6 @@ svg .fill { fill: currentColor; stroke: none; }
 #npb-news-text { font-size: 27px; line-height: 1.35; max-height: 110px; overflow: hidden; unicode-bidi: plaintext; transition: opacity .4s; }
 #npb-matches div { font-size: 22px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #npb-matches .live { color: #ff7a7f; font-weight: bold; }
+/* Quran translation under the verse */
+#np-verse { max-height: 330px; }
+#np-verse .np-tr { font-size: 28px; line-height: 1.4; color: #cfd6e2; margin-top: 10px; text-align: center; unicode-bidi: plaintext; }

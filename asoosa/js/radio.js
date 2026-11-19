@@ -162,10 +162,11 @@ var RadioData = (function () {
     });
   }
 
-  /** Uthmani text of a surah: cb(err, ['verse 1', 'verse 2', …]). */
-  function surahText(surah, cb) {
-    cached('qt:' + surah, function (done) {
-      getJSON('https://api.alquran.cloud/v1/surah/' + surah + '/quran-uthmani', function (err, d) {
+  /** Text of a surah: cb(err, ['verse 1', 'verse 2', …]); edition 'quran-uthmani' (Arabic) or a translation like 'en.sahih'. */
+  function surahText(surah, cb, edition) {
+    edition = edition || 'quran-uthmani';
+    cached('qt:' + edition + ':' + surah, function (done) {
+      getJSON('https://api.alquran.cloud/v1/surah/' + surah + '/' + edition, function (err, d) {
         var a = d && d.data && d.data.ayahs;
         if (err || !a) return done(err || 'no text');
         done(null, a.map(function (x) { return String(x.text || '').replace(/^﻿/, ''); }));
