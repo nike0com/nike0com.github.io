@@ -538,7 +538,7 @@
     RadioData.clicked(st.rb);
   }
   function playSurah(s, r) {
-    startPlaying({ kind: 'surah', id: s.id, url: RadioData.surahUrl(r, s.num), title: s.n.replace(/^\d+\s+/, 'سورة '), sub: r.n, logo: '', ext: 'mp3', item: s });
+    startPlaying({ kind: 'surah', id: s.id, url: RadioData.surahUrl(r, s.num), title: s.n.replace(/^\d+\s+/, 'سورة '), sub: r.n, logo: '', ext: 'mp3', item: s, reciter: r, num: s.num });
   }
 
   function isRadioFav(id) { return S.radioFavs.some(function (x) { return x.id === id; }); }
@@ -583,6 +583,158 @@
     $('np-hint').textContent = p.kind === 'surah'
       ? 'CH ▲▼ next / previous surah  ·  ◄ ► rewind / forward  ·  OK list'
       : 'CH ▲▼ next station  ·  GREEN favorite  ·  OK list  ·  BACK stop';
+    $('np').classList[p.kind === 'surah' ? 'add' : 'remove']('quran');
+    $('np-prog').classList[p.kind === 'surah' ? 'add' : 'remove']('on');
+    if (NPX.pid !== p.id) {
+      // Something new is playing: forget the last song title / verses.
+      NPX.pid = p.id;
+      NPX.song = ''; NPX.icyOff = false; NPX.icyFails = 0; NPX.icyAt = Date.now() - 20000;
+      NPX.verses = null; NPX.timing = null; NPX.ayah = -1;
+      $('np-song').textContent = '';
+      $('np-verse').innerHTML = '';
+      if (p.kind === 'surah') loadVerses(p);
+    }
+    renderNpBoard();
+    rotateNpNews();
+  }
+
+  /* ---- now playing extras: info board, Quran verses, song title, slow drift ---- */
+
+  var NPX = { pid: null, newsIdx: 0, newsAt: 0, driftAt: 0, homeAt: 0 };
+  var BASMALA = 'بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ';
+
+  function npOn() { return !$('np').classList.contains('hidden'); }
+
+  /** Every second while the now-playing screen shows. */
+  function npTick() {
+    if (!npOn()) return;
+    var p = S.playing, now = Date.now(), d = new Date();
+    $('npb-clock').textContent = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    if (now - NPX.homeAt > 15000) { NPX.homeAt = now; if (S.cfg) loadHomeData(false); renderNpBoard(); }
+    if (now - NPX.newsAt > 9000) rotateNpNews();
+    if (now - NPX.driftAt > 90000) {
+      // move everything a few pixels, slowly, so no line stays on the same spot for hours
+      NPX.driftAt = now;
+      $('np-stage').style.transform = 'translate(' + (Math.round(Math.random() * 60) - 30) + 'px,' + (Math.round(Math.random() * 30) - 15) + 'px)';
+    }
+    if (p && p.kind === 'surah') npQuranTick(p);
+    if (p && p.kind === 'radio' && !NPX.icyOff && now - NPX.icyAt > 25000) { NPX.icyAt = now; icyPoll(p); }
+  }
+
+  /** Clock, weather and next prayer; your teams' live / coming / last matches. */
+  function renderNpBoard() {
+    var w = HOME.weather, cfg = homeCfg(), now = Date.now();
+    $('npb-weather').textContent = (w ? Math.round(w.temp) + '°  ' + HomeData.describe(w.code, w.day).text + '  ·  ' : '') + cfg.weather.name;
+    var next = prayerCards().filter(function (c) { return c.next; })[0];
+    if (next) {
+      var m = Math.max(0, Math.round((next.at - now) / 60000));
+      $('npb-prayer').textContent = next.name + ' ' + next.ar + '  ' + next.time + '  ·  in ' + (m >= 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : m + ' min');
+    } else $('npb-prayer').textContent = '';
+    var ms = (HOME.matches || []).filter(function (x) { return isFavMatch(x) && (x.state === 'live' || (x.state === 'pre' && x.time - now < 7 * 86400000)); });
+    ms = ms.concat(resultCards().filter(isFavMatch)).slice(0, 3);
+    var h = '';
+    ms.forEach(function (x) {
+      var score = x.state === 'pre' ? '  –  ' : '  ' + x.hs + ' – ' + x.as + '  ';
+      var when = x.state === 'live' ? '● ' + (x.detail || 'LIVE') : x.state === 'done' ? 'FT' : matchWhen(x).replace(/<[^>]+>/g, '');
+      h += '<div' + (x.state === 'live' ? ' class="live"' : '') + '>' + esc(x.home + score + x.away) + '  <small>' + esc(when) + '</small></div>';
+    });
+    $('npb-matches').innerHTML = h || '<div>No matches of your teams this week</div>';
+  }
+
+  /** One headline at a time (every 9 s) from the Home news feeds. */
+  function rotateNpNews() {
+    NPX.newsAt = Date.now();
+    var all = [];
+    homeCfg().news.forEach(function (f, i) { var n = HOME.news[i]; if (n && n.items) n.items.forEach(function (it) { all.push(it); }); });
+    if (!all.length) { $('npb-news-text').textContent = 'Loading news…'; return; }
+    var it = all[NPX.newsIdx++ % all.length], el = $('npb-news-text');
+    el.style.opacity = 0;
+    setTimeout(function () {
+      el.textContent = it.title;
+      $('npb-news-src').textContent = 'News · ' + (it.source || '') + (it.time ? '  ·  ' + ago(it.time) : '');
+      el.style.opacity = 1;
+    }, 400);
+  }
+
+  /** Verse text + timing for this reciter and surah (only some recordings have timing). */
+  function loadVerses(p) {
+    var r = p.reciter, n = p.num;
+    if (!r || !n) return;
+    RadioData.surahText(n, function (err, verses) {
+      if (err || S.playing !== p) return;
+      if (n !== 1 && verses.length) {
+        // verse 1 starts with the basmala, which has its own timed line: drop its 4 words
+        // (letters compared without diacritics, which the sources write in different orders)
+        var bare = function (x) { return x.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, ''); };
+        var w = verses[0].split(/\s+/);
+        if (w.length > 4 && bare(w[0]) === 'بسم' && bare(w[3]).indexOf('رحيم') >= 0) verses[0] = w.slice(4).join(' ');
+      }
+      NPX.verses = verses;
+    });
+    RadioData.timing(r, n, function (err, t) {
+      if (S.playing !== p) return;
+      NPX.timing = err ? [] : t;
+    });
+  }
+
+  function npQuranTick(p) {
+    var t = Player.time(), d = Player.duration();
+    $('np-bar').style.width = d ? Math.min(100, 100 * t / d) + '%' : '0';
+    $('np-time').textContent = fmtTime(t) + (d ? ' / ' + fmtTime(d) : '');
+    if (!NPX.verses || !NPX.timing) return;
+    var cur = null;
+    for (var i = 0; i < NPX.timing.length; i++) if (NPX.timing[i].s <= t && t < NPX.timing[i].e) { cur = NPX.timing[i]; break; }
+    if (!NPX.timing.length) {
+      // no timing for this recording: no verse line (the surah name and progress still show)
+      if (NPX.ayah !== -2) { NPX.ayah = -2; $('np-verse').innerHTML = ''; }
+      return;
+    }
+    if (!cur || cur.ayah === NPX.ayah) return;
+    NPX.ayah = cur.ayah;
+    var text = cur.ayah === 0 ? BASMALA : NPX.verses[cur.ayah - 1];
+    $('np-verse').innerHTML = text ? esc(text) + (cur.ayah ? '  <small>﴿' + cur.ayah + '﴾</small>' : '') : '';
+  }
+
+  /*
+   * Song title: many stations send "Artist - Title" inside the stream (ICY metadata), which the
+   * TV's player does not pass on. Every 25 s the app reads one small block of the stream
+   * itself (about 16 KB) to get it. Stations that don't send it are left alone.
+   */
+  function icyPoll(p) {
+    if (!window.fetch || !window.ReadableStream) { NPX.icyOff = true; return; }
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) try { ctrl.abort(); } catch (e) {} }, 12000);
+    function fail() { clearTimeout(timer); if (++NPX.icyFails >= 2) NPX.icyOff = true; }
+    var opts = { headers: { 'Icy-MetaData': '1' }, cache: 'no-store' };
+    if (ctrl) opts.signal = ctrl.signal;
+    window.fetch(p.url, opts).then(function (res) {
+      var mi = parseInt(res.headers.get('icy-metaint'), 10);
+      if (!mi || !res.body || mi > 256000) { clearTimeout(timer); NPX.icyOff = true; if (ctrl) try { ctrl.abort(); } catch (e) {} return; }
+      var reader = res.body.getReader(), buf = new Uint8Array(mi + 1 + 4080), got = 0, metaLen = -1;
+      function finish() {
+        clearTimeout(timer);
+        try { reader.cancel(); } catch (e) {}
+        if (ctrl) try { ctrl.abort(); } catch (e2) {}
+        if (metaLen <= 0 || S.playing !== p) return;
+        var raw = buf.subarray(mi + 1, mi + 1 + metaLen), txt;
+        try { txt = new TextDecoder('utf-8', { fatal: true }).decode(raw); } catch (e3) { try { txt = new TextDecoder('windows-1252').decode(raw); } catch (e4) { txt = ''; } }
+        var m = /StreamTitle='(.*?)';/.exec(txt);
+        var song = m ? m[1].replace(/\s+/g, ' ').trim() : '';
+        if (song && song !== p.title && song !== NPX.song) { NPX.song = song; $('np-song').textContent = '♪  ' + song; }
+      }
+      function pump() {
+        return reader.read().then(function (r) {
+          if (r.done) return finish();
+          var c = r.value, take = Math.min(c.length, buf.length - got);
+          buf.set(c.subarray(0, take), got);
+          got += take;
+          if (got > mi && metaLen < 0) metaLen = buf[mi] * 16;
+          if (metaLen === 0 || (metaLen > 0 && got >= mi + 1 + metaLen) || got >= buf.length) return finish();
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(fail);
   }
 
   /** BACK while a radio plays: stop it and show the station list. */
@@ -3796,6 +3948,7 @@
         if (now > 0) { S.playing.lastTime = now; S.playing.lastDur = Player.duration() || S.playing.lastDur; }
       }
       updateRecBadge();
+      npTick();
       // "Skip intro" goes away once the intro is over (or another title plays)
       var po = S.playing;
       if (!$('skip').classList.contains('hidden') && (!po || !po.introOffer || Player.time() > po.introOffer - 2000)) hideSkip();

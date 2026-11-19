@@ -135,8 +135,47 @@ var RadioData = (function () {
     }, cb);
   }
 
+  /*
+   * Verse by verse: mp3quran has the start/end time of every ayah for 115 recordings (matched by
+   * the recording's folder). cb(err, [{ ayah, s, e }]) in ms; ayah 0 = the basmala before verse 1.
+   */
+  var timingCache = {};
+  function norm(u) { return String(u || '').replace(/^https?:\/\//, '').replace(/\/+$/, '').toLowerCase(); }
+  function timing(reciter, surah, cb) {
+    cached('reads', function (done) {
+      getJSON('https://mp3quran.net/api/v3/ayat_timing/reads', function (err, d) {
+        if (err || !(d instanceof Array)) return done(err || 'no timing list');
+        done(null, d.map(function (x) { return { id: x.id, f: norm(x.folder_url) }; }));
+      });
+    }, function (err, reads) {
+      if (err) return cb(err);
+      var f = norm(reciter.server), read = null;
+      reads.forEach(function (x) { if (x.f === f) read = x.id; });
+      if (!read) return cb('no verse timing for this reciter');
+      var key = read + ':' + surah;
+      if (timingCache[key]) return cb(null, timingCache[key]);
+      getJSON('https://mp3quran.net/api/v3/ayat_timing?surah=' + surah + '&read=' + read, function (e2, t) {
+        if (e2 || !(t instanceof Array)) return cb(e2 || 'no timing');
+        timingCache[key] = t.map(function (x) { return { ayah: x.ayah, s: x.start_time, e: x.end_time }; });
+        cb(null, timingCache[key]);
+      });
+    });
+  }
+
+  /** Uthmani text of a surah: cb(err, ['verse 1', 'verse 2', …]). */
+  function surahText(surah, cb) {
+    cached('qt:' + surah, function (done) {
+      getJSON('https://api.alquran.cloud/v1/surah/' + surah + '/quran-uthmani', function (err, d) {
+        var a = d && d.data && d.data.ayahs;
+        if (err || !a) return done(err || 'no text');
+        done(null, a.map(function (x) { return String(x.text || '').replace(/^﻿/, ''); }));
+      });
+    }, cb);
+  }
+
   function pad3(n) { return n < 10 ? '00' + n : n < 100 ? '0' + n : '' + n; }
   function surahUrl(reciter, n) { return reciter.server.replace(/\/?$/, '/') + pad3(n) + '.mp3'; }
 
-  return { GROUPS: GROUPS, stations: stations, clicked: clicked, quranRadios: quranRadios, reciters: reciters, suwar: suwar, surahUrl: surahUrl };
+  return { GROUPS: GROUPS, stations: stations, clicked: clicked, quranRadios: quranRadios, reciters: reciters, suwar: suwar, surahUrl: surahUrl,
+    timing: timing, surahText: surahText };
 })();
