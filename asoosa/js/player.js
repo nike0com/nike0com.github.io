@@ -85,12 +85,12 @@ var Player = (function () {
       });
       av.setDisplayRect(0, 0, 1920, 1080);
       try { av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX'); } catch (e) {}
-      if (bufferSeconds > 0) {
-        try {
-          av.setBufferingParam('PLAYER_BUFFER_FOR_PLAY', 'PLAYER_BUFFER_SIZE_IN_SECOND', bufferSeconds);
-          av.setBufferingParam('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', bufferSeconds);
-        } catch (e) {}
-      }
+      // Buffering: start after a short buffer (fast channel start), but after a stall wait for a
+      // longer one so it doesn't stall again right away. config "bufferSeconds" overrides the start buffer.
+      var first = bufferSeconds > 0 ? bufferSeconds : (opts.live ? 3 : 4);
+      var again = opts.live ? 8 : 12;
+      try { av.setBufferingParam('PLAYER_BUFFER_FOR_PLAY', 'PLAYER_BUFFER_SIZE_IN_SECOND', first); } catch (e) {}
+      try { av.setBufferingParam('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', Math.max(first, again)); } catch (e) {}
       step = 'prepare';
       av.prepareAsync(function () {
         if (my !== token) return;

@@ -618,3 +618,12 @@ body.phone .vlist::-webkit-scrollbar, body.phone .vgrid::-webkit-scrollbar,
 body.phone #h-view::-webkit-scrollbar, body.phone .hrow-view::-webkit-scrollbar { display: none; }
 /* Phone: pictures fade in when they arrive (instead of popping in while scrolling) */
 body.phone .pimg, body.phone .row .logo { transition: opacity .18s ease-out; }
+
+/* ---------- TV: lighter highlight effects ----------
+   Large blurred glows are repainted on every remote press, which a TV's graphics chip feels.
+   On the TV the highlight is a crisp outline instead (the phone keeps the glow). */
+body:not(.phone) .vlist.active .row.sel { box-shadow: none; }
+body:not(.phone) .nav-item.focus, body:not(.phone) .btn.focus, body:not(.phone) .set-row.focus { box-shadow: none; }
+body:not(.phone) .hcard.focus { box-shadow: 0 0 0 3px rgba(123,92,255,.9); }
+body:not(.phone) .dt-btn.focus { box-shadow: none; }
+body:not(.phone) .vgrid.active .tile.sel .pf { box-shadow: 0 0 0 3px rgba(123,92,255,.9); }

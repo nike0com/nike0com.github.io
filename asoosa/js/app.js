@@ -207,8 +207,9 @@
       var idx = keyIndex[p.key];
       if (idx !== undefined && repOf[idx] !== undefined) idx = repOf[idx];
       p.idx = idx === undefined ? -1 : idx;
-      if (idx !== undefined) { p.num = num[idx]; p.id = ch[idx].id; p.alts = (alts[idx] || []).slice(); p.q = qual[idx]; }
-      if (idx !== undefined && liveUrl(ch[idx]) !== p.url) playLive(idx); // best version changed or URL changed
+      var pick = idx !== undefined ? liveChoice(idx) : null;
+      if (idx !== undefined) { p.num = num[idx]; p.id = ch[pick[0]].id; p.alts = pick.slice(1); p.q = qual[pick[0]]; }
+      if (idx !== undefined && liveUrl(ch[pick[0]]) !== p.url) playLive(idx); // chosen version changed or URL changed
       else if (idx !== undefined && S.statusErr) tryNextVersion();      // saved version failed before the list was ready
     }
     S.zap = { kind: 'live', list: liveListFor(S.zapCtx) };
@@ -2032,13 +2033,27 @@
     });
   }
 
+  /*
+   * Which version of a channel plays first. "Best picture": the highest (4K...). "Fast start":
+   * FHD first, then HD, then 4K: 4K needs the most data and starts / stalls the most.
+   */
+  function fastStart() { return Store.lsGet('liveQuality') === 'fast'; }
+  function liveChoice(idx) {
+    var L = S.live, list = [idx].concat(L.alts[idx] || []);
+    if (!fastStart()) return list;
+    var rank = function (i) { var q = L.qual[i]; return q === 4 ? 0 : q === 3 ? 1 : q === 5 ? 2 : q === 6 ? 3 : 4; };
+    return list.map(function (i, k) { return { i: i, k: k }; })
+      .sort(function (a, b) { return rank(a.i) - rank(b.i) || a.k - b.k; })
+      .map(function (o) { return o.i; });
+  }
+
   function playLive(idx, opts) {
     var c = S.live.channels[idx];
     if (!c) return;
-    var L = S.live;
+    var L = S.live, order = liveChoice(idx), pc = L.channels[order[0]];
     var p = {
-      kind: 'live', idx: idx, id: c.id, key: chKey(c), url: liveUrl(c), title: c.n, sub: L.groups[c.g], logo: c.l,
-      num: L.num[idx] || '', ext: 'ts', q: L.qual[idx], alts: (L.alts[idx] || []).slice()
+      kind: 'live', idx: idx, id: pc.id, key: chKey(c), url: liveUrl(pc), title: c.n, sub: L.groups[c.g], logo: c.l,
+      num: L.num[idx] || '', ext: 'ts', q: L.qual[order[0]], alts: order.slice(1)
     };
     Store.lsSet('last', { p: { kind: 'live', key: p.key, url: p.url, title: p.title, sub: p.sub, logo: p.logo }, ctx: S.zapCtx });
     rememberChannel(c);
@@ -3852,6 +3867,7 @@
     return [
       { id: 'profiles', label: 'Profile', value: curProfile().name + (Store.profiles().length > 1 ? '  ·  OK to switch' : '  ·  OK to add family') },
       { id: 'sleep', label: 'Sleep timer', value: sleepLabel() },
+      { id: 'quality', label: 'Live channel quality', value: fastStart() ? 'Fast start  ·  FHD first, 4K only if needed' : 'Best picture  ·  4K first' },
       { id: 'home', label: 'Home screen', value: 'show, hide and order the rows' },
       { id: 'quranTr', label: 'Quran translation', value: quranTrLabel() + '  ·  under each verse' },
       { id: 'adhan', label: 'Adhan on radio', value: Store.lsGet('adhanOff') ? 'Off' : 'On  ·  at each prayer the radio pauses for the adhan' },
@@ -3962,6 +3978,11 @@
           if (S.section === 'home') renderHomeRows();
         } else if (row.id === 'update') checkUpdate();
         else if (row.id === 'quranTr') { cycleQuranTr(); renderSettings(); }
+        else if (row.id === 'quality') {
+          Store.lsSet('liveQuality', fastStart() ? 'best' : 'fast');
+          toast(fastStart() ? 'Fast start: channels open in FHD (4K only if FHD fails)' : 'Best picture: channels open in 4K when there is one', 4000);
+          renderSettings();
+        }
         else if (row.id === 'adhan') { Store.lsSet('adhanOff', !Store.lsGet('adhanOff')); renderSettings(); }
         else if (row.id === 'sleep') cycleSleep();
         else if (row.id === 'subsize' || row.id === 'subcolor' || row.id === 'subbg') {
