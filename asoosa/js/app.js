@@ -551,6 +551,7 @@
     if (pos >= 0) { S.radioFavs.splice(pos, 1); toast('Removed from favorites: ' + st.n); }
     else { S.radioFavs.unshift({ id: st.id, n: st.n, l: st.l, u: st.u, tag: st.tag, rb: st.rb }); toast('Added to favorites: ' + st.n); }
     Store.lsSet('favRadio', S.radioFavs);
+    syncAutoFavorites();
     var gi = S.groupItems[S.groupSel];
     if (S.section === 'radio' && !S.reciter && gi && gi.id === 'rfav') applyView(false); else chList.invalidate();
     updateNowPlaying();
@@ -639,6 +640,11 @@
       var gi = groupIndex(p.gid);
       if (gi >= 0) selectGroup(gi);
     }
+  }
+
+  /** Android app: favorite stations also show in Android Auto. */
+  function syncAutoFavorites() {
+    try { if (window.AndroidPlayer && window.AndroidPlayer.setAutoFavorites) window.AndroidPlayer.setAutoFavorites(JSON.stringify(S.radioFavs)); } catch (e) {}
   }
 
   /** Radio and Quran have no picture: a "now playing" screen instead of black. */
@@ -1061,6 +1067,8 @@
     r.innerHTML = '<span class="num"></span><img class="logo" alt=""><span class="name"></span><span class="tag q"></span><span class="fav"></span>';
     r._num = r.childNodes[0]; r._logo = r.childNodes[1]; r._name = r.childNodes[2]; r._q = r.childNodes[3]; r._fav = r.childNodes[4];
     r._logo.onerror = function () { this.style.visibility = 'hidden'; };
+    r._logo.decoding = 'async';                     // decode logos off the scrolling path
+    r._logo.onload = function () { this.style.opacity = 1; };
     return r;
   }
 
@@ -1068,7 +1076,7 @@
     if (!logosOn()) { img.style.display = 'none'; return; }
     img.style.display = '';
     if (src) {
-      if (img.getAttribute('src') !== src) { img.style.visibility = 'visible'; img.src = src; }
+      if (img.getAttribute('src') !== src) { img.style.visibility = 'visible'; if (TOUCH_ON) img.style.opacity = 0; img.src = src; }
     } else { img.removeAttribute('src'); img.style.visibility = 'hidden'; }
   }
 
@@ -1164,7 +1172,8 @@
     t._pf = t.firstChild; t._ph = t._pf.childNodes[0]; t._img = t._pf.childNodes[1]; t._fav = t._pf.childNodes[2];
     t._t = t.childNodes[1]; t._m = t.childNodes[2];
     t._img.onerror = function () { this.style.visibility = 'hidden'; };
-    t._img.onload = function () { this.style.visibility = 'visible'; };
+    t._img.decoding = 'async';
+    t._img.onload = function () { this.style.visibility = 'visible'; this.style.opacity = 1; };
     return t;
   }
 
@@ -1180,7 +1189,7 @@
       (isLater(S.section, it.id) ? '+' : '');
     if (S.section === 'movies' && isWatched('m' + it.id)) t.classList.add('seen'); else t.classList.remove('seen');
     if (it.l && logosOn()) {
-      if (t._img.getAttribute('src') !== it.l) { t._img.style.visibility = 'hidden'; t._img.src = it.l; }
+      if (t._img.getAttribute('src') !== it.l) { t._img.style.visibility = 'hidden'; t._img.style.opacity = 0; t._img.src = it.l; }
     } else { t._img.removeAttribute('src'); t._img.style.visibility = 'hidden'; }
   }
 
@@ -2002,7 +2011,7 @@
     var startMs = opts.startMs || (p.posKey && positions[p.posKey] ? positions[p.posKey] : 0);
     if (startMs) toast('Resuming at ' + fmtTime(startMs) + ' · ◄ to rewind', 3000);
     clearTimeout(timers.zap);
-    var go = function () { Player.play(p.url, { live: p.kind === 'live' || p.kind === 'radio', startMs: startMs }); };
+    var go = function () { Player.play(p.url, { live: p.kind === 'live' || p.kind === 'radio', startMs: startMs, title: p.title, sub: p.sub, art: p.logo }); };
     if (opts.debounce) { timers.zap = setTimeout(go, ZAP_DELAY); return; }
     var vod = p.kind === 'movie' || p.kind === 'episode';
     var wantProbe = vod && (/^mkv$/i.test(p.ext || '') || OpenSubs.enabled());
@@ -2261,7 +2270,7 @@
       savePos();
       if (Recorder.current()) Recorder.stop();
       Player.stop();
-      try { window.tizen.application.getCurrentApplication().exit(); } catch (e) { window.close(); }
+      if (window.AndroidPlayer) window.AndroidPlayer.exit(); else try { window.tizen.application.getCurrentApplication().exit(); } catch (e) { window.close(); }
       return;
     }
     backArmed = Date.now();
@@ -2928,14 +2937,18 @@
     var box = $('h-rows'), html = '';
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
-      html += '<div class="hrow" data-row="' + i + '"><div class="hrow-title">' + esc(r.title) + '</div><div class="hrow-view"><div class="hrow-track">';
+      html += '<div class="hrow" data-row="' + i + '" data-key="' + esc(r.key || i) + '"><div class="hrow-title">' + esc(r.title) + '</div><div class="hrow-view"><div class="hrow-track">';
       if (!r.items.length) html += '<div class="hrow-empty">' + esc(r.empty) + '</div>';
       for (var j = 0; j < r.items.length; j++) html += cardHtml(r.id, r.items[j]);
       html += '</div></div></div>';
     }
+    // phone: keep each row where the finger left it across the once-a-minute redraw
+    var keep = {};
+    Array.prototype.forEach.call(box.querySelectorAll('.hrow'), function (r) { var v = r.querySelector('.hrow-view'); if (v && v.scrollLeft) keep[r.getAttribute('data-key')] = v.scrollLeft; });
     box.innerHTML = html;
+    Array.prototype.forEach.call(box.querySelectorAll('.hrow'), function (r) { var v = r.querySelector('.hrow-view'), k = r.getAttribute('data-key'); if (v && keep[k]) v.scrollLeft = keep[k]; });
     var imgs = box.getElementsByTagName('img');
-    for (var k = 0; k < imgs.length; k++) imgs[k].onerror = function () { this.style.visibility = 'hidden'; };
+    for (var k = 0; k < imgs.length; k++) { imgs[k].decoding = 'async'; imgs[k].onerror = function () { this.style.visibility = 'hidden'; }; }
     renderHomeFocus();
   }
 
@@ -3014,8 +3027,9 @@
       for (var j = 0; j < cards.length; j++) {
         if (S.focus === 'home' && i === HOME.r && j === col) cards[j].classList.add('focus'); else cards[j].classList.remove('focus');
       }
-      // Scroll the row so the focused card stays visible.
+      // Scroll the row so the focused card stays visible (phone: where the finger left it).
       var track = rowsEl[i].querySelector('.hrow-track'), card = cards[col], shift = 0;
+      if (TOUCH_ON) { track.style.transform = 'translateX(' + (-(HOME.tx[i] || 0)) + 'px)'; continue; }
       if (card) {
         var viewW = rowsEl[i].querySelector('.hrow-view').clientWidth, right = card.offsetLeft + card.offsetWidth + 40;
         if (right > viewW) shift = right - viewW;
@@ -3024,7 +3038,7 @@
     }
     // Scroll the rows up/down so the focused row is fully visible.
     var focusRow = rowsEl[HOME.r], viewH = $('h-view').clientHeight, sc = HOME.scroll || 0;
-    if (focusRow && viewH) {
+    if (focusRow && viewH && !TOUCH_ON) {
       var top = focusRow.offsetTop, bottom = top + focusRow.offsetHeight + 20;
       if (bottom - sc > viewH) sc = bottom - viewH;
       if (top - 10 < sc) sc = Math.max(0, top - 10);
@@ -3625,7 +3639,7 @@
     savePos();
     if (Recorder.current()) Recorder.stop();
     Player.stop();
-    try { window.tizen.application.getCurrentApplication().exit(); } catch (e) { window.close(); }
+    if (window.AndroidPlayer) window.AndroidPlayer.exit(); else try { window.tizen.application.getCurrentApplication().exit(); } catch (e) { window.close(); }
   }
 
   /* ---------------- recently watched channels ---------------- */
@@ -3863,6 +3877,7 @@
     $('set-sub').textContent = SET_HINTS[m] || '';
     // Show a window of rows around the selection (lists can be long).
     var start = Math.max(0, Math.min(sel - 4, rows.length - 9));
+    SET.start = start;                                    // for taps on a row
     for (var i = start; i < Math.min(rows.length, start + 9); i++) {
       var r = rows[i];
       html += '<div class="set-row' + (m === 'teams' ? ' small' : '') + (S.focus === 'settings' && i === sel ? ' focus' : '') + '">' +
@@ -3966,6 +3981,277 @@
     }
   }
 
+  /* ---------------- Android phone (Galaxy Z Fold): screen fit and touch ---------------- */
+
+  /**
+   * The screens are drawn for a 1920 x 1080 canvas. On a phone the canvas is scaled to fit the
+   * screen whatever its shape (Fold inner screen ~square, cover screen tall, landscape wide),
+   * centered, with the rest dark. Called again when the phone is folded / unfolded / rotated.
+   */
+  function fitScreen() {
+    var a = 16 / 9;
+    try { a = window.AndroidPlayer.aspect() || a; } catch (e) {}
+    // Landscape: the TV layout, 1920 wide, as tall as the screen allows (Fold inner screen ~1.33).
+    // Portrait: the tall phone layout, 1000 wide (Fold cover screen, or any phone held upright).
+    var tall = a < 1, W, H;
+    if (tall) { W = 1000; H = Math.round(W / a); }
+    else if (a < 16 / 9) { W = 1920; H = Math.round(W / a); }
+    else { W = Math.round(1080 * a); H = 1080; }
+    var meta = document.querySelector('meta[name=viewport]');
+    if (meta) meta.setAttribute('content', 'width=' + W + ', user-scalable=no');
+    var de = document.documentElement, b = document.body;
+    de.style.width = b.style.width = W + 'px';
+    de.style.height = b.style.height = H + 'px';
+    b.style.position = 'relative'; b.style.left = '0'; b.style.top = '0';
+    b.classList.add('phone');
+    b.classList[tall ? 'add' : 'remove']('tall');
+    // Poster grid: as many columns as fit, and as tall as its area.
+    var chW = tall ? W - 40 : W - 580, chH = tall ? H - 304 - 140 : H - 120;
+    GRID.cols = Math.max(3, Math.floor((chW + GRID.gap) / (GRID.tileW + GRID.gap)));
+    GRID.height = Math.max(340, chH - 302);
+    relayoutLists();
+    if (S.section === 'home') renderHomeRows();
+    if (S.section === 'settings') renderSettings();
+    if (bannerVisible()) renderBanner();
+  }
+
+  /** Phone: start loading pictures before they scroll into view (the browser keeps them cached). */
+  var PREF = {}, PREF_N = 0;
+  function prefetchImg(url) {
+    if (!url || PREF[url] || !logosOn()) return;
+    if (++PREF_N > 600) { PREF = {}; PREF_N = 0; }
+    PREF[url] = new Image();
+    PREF[url].decoding = 'async';
+    PREF[url].src = url;
+  }
+  function prefetchRow(i) {
+    var it = S.view[i];
+    if (it === undefined) return;
+    prefetchImg(S.viewKind === 'live' ? (S.live.channels[it] || {}).l : it.l);
+  }
+
+  /** Lists know how many rows fit when they are made: make them again for the new screen size. */
+  function relayoutLists() {
+    if (!listW) return;
+    var panel = $('panel');
+    panel.classList.add('measure');
+    function clear(el) {
+      Array.prototype.slice.call(el.children).forEach(function (c) { if (!c.classList.contains('thumb')) el.removeChild(c); });
+    }
+    var wasGrid = curW === gridW, lc = listW.count, ls = listW.sel, gc = gridW.count, gs = gridW.sel, active = curW.el.classList.contains('active');
+    clear(listW.el); clear(gridW.el); clear(grList.el);
+    listW = new VList($('channels'), { rowH: ROW_H, create: createChRow, render: renderChRow, onSelect: onListSelect, prefetch: prefetchRow });
+    gridW = new VGrid($('grid'), {
+      cols: GRID.cols, tileW: GRID.tileW, gap: GRID.gap, rowH: GRID.rowH, height: GRID.height, pad: GRID.pad,
+      create: createTile, render: renderTile, onSelect: onListSelect, prefetch: prefetchRow
+    });
+    var gsel = S.groupSel;
+    grList = new VList($('groups'), { rowH: GROUP_ROW_H, create: createGrRow, render: renderGrRow });
+    panel.classList.remove('measure');
+    curW = wasGrid ? gridW : listW;
+    if (lc) listW.setCount(lc, ls);
+    if (gc) gridW.setCount(gc, gs);
+    if (S.groupItems.length) grList.setCount(S.groupItems.length, gsel);
+    curW.setActive(active);
+    grList.setActive(S.focus === 'groups');
+  }
+
+  var TOUCH = { x: 0, y: 0, el: null, moved: false, long: 0, swiped: 0 };
+
+  var TOUCH_ON = false;
+  HOME.tx = {};
+
+  /*
+   * Dragging: lists, the poster grid and the Home screen follow the finger pixel by pixel, then
+   * glide on and slow down (like any phone app). Other swipes (while watching) act on release.
+   */
+  function dragTarget(el) {
+    if (VList.native) return null;          // phone: the browser scrolls lists, grid and Home itself
+    if (!S.panel || MENU || ALERT || PROMPT || S.focus === 'details' || S.focus === 'trailer' || S.focus === 'reader') return null;
+    var x;
+    if (closestEl(el, '#channels')) return { kind: 'list', w: listW };
+    if (closestEl(el, '#grid')) return { kind: 'list', w: gridW };
+    if (closestEl(el, '#groups')) return { kind: 'list', w: grList };
+    if ((x = closestEl(el, '.hrow'))) return { kind: 'home', row: parseInt(x.getAttribute('data-row'), 10), el: x };
+    if (closestEl(el, '#h-view')) return { kind: 'home', row: -1 };
+    return null;
+  }
+
+  /** Moves the drag target by (dx, dy) pixels of finger movement; false when it can't move further. */
+  function dragBy(d, dx, dy) {
+    if (d.kind === 'list') return d.axis === 'y' ? d.w.scrollBy(-dy) : false;
+    if (d.axis === 'y') {
+      var view = $('h-view'), rows = $('h-rows'), max = Math.max(0, rows.scrollHeight - view.clientHeight + 20);
+      var sc = Math.max(0, Math.min(max, (HOME.scroll || 0) - dy));
+      if (sc === HOME.scroll) return false;
+      HOME.scroll = sc;
+      rows.style.transform = 'translateY(' + (-sc) + 'px)';
+      return true;
+    }
+    if (d.row < 0 || !d.el) return false;
+    var track = d.el.querySelector('.hrow-track'), vw = d.el.querySelector('.hrow-view').clientWidth;
+    var maxX = Math.max(0, track.scrollWidth - vw + 20), tx = Math.max(0, Math.min(maxX, (HOME.tx[d.row] || 0) - dx));
+    if (tx === (HOME.tx[d.row] || 0)) return false;
+    HOME.tx[d.row] = tx;
+    track.style.transform = 'translateX(' + (-tx) + 'px)';
+    return true;
+  }
+
+  var FLING = 0;
+  function glide(d, vx, vy) {
+    cancelAnimationFrame(FLING);
+    var last = Date.now();
+    function step() {
+      var now = Date.now(), dt = Math.min(40, now - last);
+      last = now;
+      var f = Math.pow(0.9965, dt);                       // friction: about half the speed every 200 ms
+      vx *= f; vy *= f;
+      if (Math.abs(vx) < 0.02 && Math.abs(vy) < 0.02) return;
+      if (!dragBy(d, vx * dt, vy * dt)) return;
+      FLING = requestAnimationFrame(step);
+    }
+    FLING = requestAnimationFrame(step);
+  }
+
+  function setupTouch() {
+    TOUCH_ON = true;
+    document.addEventListener('touchstart', function (e) {
+      var t = e.touches[0];
+      cancelAnimationFrame(FLING);
+      TOUCH.x = TOUCH.lx = t.clientX; TOUCH.y = TOUCH.ly = t.clientY; TOUCH.el = e.target; TOUCH.moved = false;
+      TOUCH.drag = dragTarget(e.target); TOUCH.vx = TOUCH.vy = 0; TOUCH.t = Date.now();
+      clearTimeout(TOUCH.long);
+      TOUCH.long = setTimeout(function () { if (!TOUCH.moved) { TOUCH.swiped = Date.now(); longPress(TOUCH.el); } }, 600);
+    }, { passive: true });
+    document.addEventListener('touchmove', function (e) {
+      var t = e.touches[0], d = TOUCH.drag;
+      if (!TOUCH.moved && (Math.abs(t.clientX - TOUCH.x) > 12 || Math.abs(t.clientY - TOUCH.y) > 12)) {
+        TOUCH.moved = true; clearTimeout(TOUCH.long);
+        if (d) d.axis = Math.abs(t.clientY - TOUCH.y) >= Math.abs(t.clientX - TOUCH.x) ? 'y' : 'x';
+        TOUCH.lx = t.clientX; TOUCH.ly = t.clientY;      // start following from here (no jump)
+      }
+      if (!TOUCH.moved || !d) return;
+      var now = Date.now(), dt = Math.max(1, now - TOUCH.t), dx = t.clientX - TOUCH.lx, dy = t.clientY - TOUCH.ly;
+      if (d.axis === 'x') dy = 0; else dx = 0;
+      dragBy(d, dx, dy);
+      // finger speed (px/ms), smoothed, for the glide after release
+      TOUCH.vx = 0.7 * (dx / dt) + 0.3 * TOUCH.vx; TOUCH.vy = 0.7 * (dy / dt) + 0.3 * TOUCH.vy;
+      TOUCH.lx = t.clientX; TOUCH.ly = t.clientY; TOUCH.t = now;
+    }, { passive: true });
+    document.addEventListener('touchend', function (e) {
+      clearTimeout(TOUCH.long);
+      if (!TOUCH.moved) return;
+      var t = e.changedTouches[0];
+      TOUCH.swiped = Date.now();
+      if (TOUCH.drag) { if (Date.now() - TOUCH.t < 80) glide(TOUCH.drag, TOUCH.vx, TOUCH.vy); return; }
+      if (VList.native && closestEl(TOUCH.el, '#channels, #grid, #groups, #h-view')) return;   // that was a scroll
+      swipe(t.clientX - TOUCH.x, t.clientY - TOUCH.y, TOUCH.el);
+    }, { passive: true });
+    document.addEventListener('click', function (e) {
+      if (Date.now() - TOUCH.swiped < 400) return;          // the end of a swipe / long press is not a tap
+      tap(e.target);
+    }, true);
+  }
+
+  function closestEl(el, sel) { return el && el.closest ? el.closest(sel) : null; }
+  function childIndex(el) { var i = 0; while ((el = el.previousElementSibling)) i++; return i; }
+  function clampI(v, n) { return Math.max(0, Math.min(n - 1, v)); }
+
+  function tap(el) {
+    var x;
+    if (PROMPT) return;                                    // typing: the text field handles taps
+    if (ALERT) { closeAlert(closestEl(el, '#alert') ? 'ok' : 'back'); return; }
+    if (MENU) {
+      if ((x = closestEl(el, '.mn-row'))) { MENU.sel = childIndex(x); menuKey('ENTER'); } else if (!closestEl(el, '#menu')) closeMenu();
+      return;
+    }
+    if (S.focus === 'trailer') return;
+    if (S.focus === 'details') { if ((x = closestEl(el, '.dt-btn'))) { DT.sel = childIndex(x); detailsKey('ENTER'); } return; }
+    if (S.focus === 'reader') { closeReader(); return; }
+    if ((x = closestEl(el, '#skip')) && S.playing && S.playing.introOffer) { Player.seekTo(S.playing.introOffer); hideSkip(); return; }
+    if (!S.panel) {
+      // watching: first tap shows the info bar, the next one opens the list
+      if (bannerVisible() || !isVod()) watchKey('ENTER'); else showBanner();
+      return;
+    }
+    if ((x = closestEl(el, '.nav-item'))) {
+      var sec = x.getAttribute('data-sec');
+      switchSection(sec);
+      setFocus(sec === 'home' ? 'home' : sec === 'settings' ? 'settings' : S.groupItems.length > 1 ? 'groups' : 'list');
+      return;
+    }
+    if ((x = closestEl(el, '#groups .row'))) { if (x._idx >= 0) { setFocus('groups'); selectGroup(x._idx); } return; }
+    if ((x = closestEl(el, '#channels .row'))) { if (x._idx >= 0) { setFocus('list'); chList.select(x._idx); activateRow(); } return; }
+    if ((x = closestEl(el, '#grid .tile'))) {
+      if (x._idx < 0) return;
+      setFocus('list');
+      if (chList.sel === x._idx) activateRow(); else chList.select(x._idx);   // first tap: details strip, second: open
+      return;
+    }
+    if ((x = closestEl(el, '.hcard'))) {
+      var row = closestEl(x, '.hrow'), r = row ? parseInt(row.getAttribute('data-row'), 10) : -1;
+      if (r < 0 || !HOME.rows[r]) return;
+      HOME.r = r; HOME.c[r] = childIndex(x);
+      setFocus('home'); renderHomeFocus();
+      var hi = HOME.rows[r].items[HOME.c[r]];
+      if (hi !== undefined) openHomeItem(HOME.rows[r].id, hi);
+      return;
+    }
+    if ((x = closestEl(el, '.set-row'))) { SET.sels = SET.sels || {}; SET.sels[SET.mode] = (SET.start || 0) + childIndex(x); setFocus('settings'); settingsKey('ENTER'); return; }
+    if (closestEl(el, '#search-box')) { setFocus('search'); startTyping(); return; }
+    if (closestEl(el, '#refresh-btn')) { refresh(); return; }
+    // empty space next to the menu (live TV / radio): close it and watch
+    if (!closestEl(el, '#panel') && S.playing) closePanel();
+  }
+
+  function longPress(el) {
+    var x;
+    if (MENU || ALERT || PROMPT) return;
+    if (!S.panel) { if (S.playing) openWatchMenu(); return; }
+    if ((x = closestEl(el, '#channels .row, #grid .tile')) && x._idx >= 0) { setFocus('list'); chList.select(x._idx); openItemMenu(); return; }
+    if ((x = closestEl(el, '.hcard'))) {
+      var row = closestEl(x, '.hrow'), r = row ? parseInt(row.getAttribute('data-row'), 10) : -1, it = HOME.rows[r] && HOME.rows[r].items[childIndex(x)];
+      if (it && HOME.rows[r].id === 'matches' && it.state === 'pre') toggleReminder(it);
+    }
+  }
+
+  /** Swipes scroll lists by whole rows; while watching: up / down = next channel, left / right = seek. */
+  function swipe(dx, dy, el) {
+    var vert = Math.abs(dy) > Math.abs(dx), x;
+    if (MENU || ALERT || PROMPT || S.focus === 'details' || S.focus === 'trailer') return;
+    if (!S.panel) {
+      if (!S.playing) return;
+      if (vert) { if (!isVod() || S.playing.kind === 'episode' || S.playing.kind === 'surah') zap(dy < 0 ? 1 : -1); }
+      else if (isVod()) seek(dx > 0 ? 30000 : -15000);
+      return;
+    }
+    if (closestEl(el, '#groups')) {
+      if (vert && S.groupItems.length) { setFocus('groups'); selectGroup(clampI(S.groupSel - Math.round(dy / GROUP_ROW_H), S.groupItems.length)); }
+      return;
+    }
+    if (closestEl(el, '#channels')) { if (vert && chList.count) { setFocus('list'); chList.select(clampI(chList.sel - Math.round(dy / ROW_H), chList.count)); } return; }
+    if (closestEl(el, '#grid')) {
+      if (vert && chList.count) { setFocus('list'); chList.select(clampI(chList.sel - Math.round(dy / (GRID.rowH * 0.7)) * GRID.cols, chList.count)); }
+      return;
+    }
+    if ((x = closestEl(el, '.hrow')) || closestEl(el, '#h-view')) {
+      setFocus('home');
+      if (vert) HOME.r = clampI(HOME.r - Math.round(dy / 180), HOME.rows.length);
+      else if (x) {
+        var r = parseInt(x.getAttribute('data-row'), 10), row = HOME.rows[r];
+        if (row) { HOME.r = r; HOME.c[r] = clampI((HOME.c[r] || 0) - Math.round(dx / 300), row.items.length); }
+      }
+      renderHomeFocus();
+      return;
+    }
+    if (closestEl(el, '#set-rows') && vert) {
+      var rows = settingsRows();
+      SET.sels = SET.sels || {};
+      SET.sels[SET.mode] = clampI((SET.sels[SET.mode] || 0) - Math.round(dy / 106), rows.length);
+      setFocus('settings'); renderSettings();
+    }
+  }
+
   /* ---------------- diagnostics (config "debug": true, key 0 while watching) ---------------- */
 
   /** Draws a labelled red frame around every element that is currently visible on screen. */
@@ -4022,6 +4308,15 @@
 
     document.addEventListener('keydown', onKey);
     document.addEventListener('keyup', onKeyUp);
+    if (window.AndroidPlayer) {
+      // Android: the back button arrives here as BACK; the screen fits the phone; touch works everywhere.
+      window.__androidKey = function (name) { onKey({ __name: name, preventDefault: function () {} }); };
+      window.__androidResize = fitScreen;
+      VList.native = true;                 // phone: lists / grid scroll natively (lists are rebuilt by fitScreen)
+      syncAutoFavorites();
+      fitScreen();
+      setupTouch();
+    }
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) { savePos(); Player.suspend(); } else Player.restore();
     });

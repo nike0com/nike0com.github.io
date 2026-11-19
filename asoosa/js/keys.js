@@ -62,6 +62,7 @@ var Keys = (function () {
   }
 
   function name(e) {
+    if (e && e.__name) return e.__name;   // from the Android back button / touch
     return codes[e.keyCode] || null;
   }
 

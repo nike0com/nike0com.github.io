@@ -12,8 +12,26 @@ var Player = (function () {
 
   function emit(type, data) { onStatus(type, data); }
 
+  // Android app: Media3 player under the page (android/…/MainActivity.java), events by token.
+  var droid = window.AndroidPlayer || null, droidTracksSent = -1, droidLive = false;
+
   function init(statusCb) {
     onStatus = statusCb || onStatus;
+    if (droid) {
+      document.getElementById('av-player').style.display = 'none';
+      document.getElementById('html5-player').style.display = 'none';
+      window.__avEvent = function (tok, type, data) {
+        if (tok !== token) return;
+        if (type === 'playing') {
+          emit('playing');
+          if (!droidLive && droidTracksSent !== tok) { droidTracksSent = tok; emit('tracks'); }
+        } else if (type === 'buffering') emit('buffering', 0);
+        else if (type === 'ended') emit('ended');
+        else if (type === 'error') emit('error', data || 'stream error');
+        else if (type === 'subtitle') emit('subtitle', data);
+      };
+      return;
+    }
     try { if (window.webapis && window.webapis.avplay) av = window.webapis.avplay; } catch (e) { av = null; }
     if (!av) {
       video = document.getElementById('html5-player');
@@ -112,6 +130,7 @@ var Player = (function () {
     startedAt = Date.now();
     paused = false;
     emit('buffering', 0);
+    if (droid) { droidLive = !!opts.live; droid.play(url, !!opts.live, opts.startMs || 0, my, opts.title || '', opts.sub || '', opts.art || ''); return; }
     if (av) return playAV(url, my, opts);
     video.src = url;
     if (opts.startMs > 0) {
@@ -126,11 +145,13 @@ var Player = (function () {
 
   function stop() {
     token++;
+    if (droid) return droid.stop(token);
     if (av) closeAV();
     else if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
   }
 
   function togglePause() {
+    if (droid) { paused = droid.togglePause(); return paused; }
     try {
       if (av) {
         var st = av.getState();
@@ -145,6 +166,7 @@ var Player = (function () {
 
   /** Current position and duration in ms (0 when unknown). */
   function time() {
+    if (droid) return droid.time() || 0;
     try {
       if (av) return av.getCurrentTime() || 0;
       if (video) return Math.round((video.currentTime || 0) * 1000);
@@ -152,6 +174,7 @@ var Player = (function () {
     return 0;
   }
   function duration() {
+    if (droid) return droid.duration() || 0;
     try {
       if (av) return av.getDuration() || 0;
       if (video && isFinite(video.duration)) return Math.round(video.duration * 1000);
@@ -162,6 +185,7 @@ var Player = (function () {
   function seekTo(ms) {
     var d = duration();
     ms = Math.max(0, d ? Math.min(ms, d - 3000) : ms);
+    if (droid) return droid.seekTo(ms);
     try {
       if (av) av.seekTo(ms, function () {}, function () {});
       else if (video) video.currentTime = ms / 1000;
@@ -169,8 +193,11 @@ var Player = (function () {
   }
 
   /** Embedded subtitle tracks: [{ index, lang }] (lang as the file states it, e.g. "ara", "ger", "eng"). */
+  function droidTracks(type) { try { return JSON.parse(droid.tracks(type)) || []; } catch (e) { return []; } }
+
   function textTracks() {
     var out = [];
+    if (droid) return droidTracks('TEXT');
     if (!av) return out;
     try {
       var all = av.getTotalTrackInfo() || [];
@@ -199,11 +226,12 @@ var Player = (function () {
   }
 
   /** The TV player's state (NONE / IDLE / READY / PLAYING / PAUSED), for messages. */
-  function state() { try { return av ? av.getState() : (video && !video.paused ? 'PLAYING' : 'IDLE'); } catch (e) { return '?'; } }
+  function state() { if (droid) return droid.state(); try { return av ? av.getState() : (video && !video.paused ? 'PLAYING' : 'IDLE'); } catch (e) { return '?'; } }
 
   /** Audio tracks: [{ index, lang }] (the TV often leaves lang empty; the app reads it from the file). */
   function audioTracks() {
     var out = [];
+    if (droid) return droidTracks('AUDIO');
     if (!av) return out;
     try {
       var all = av.getTotalTrackInfo() || [];
@@ -218,18 +246,21 @@ var Player = (function () {
     return out;
   }
   function selectAudio(index) {
+    if (droid) { droid.selectTrack('AUDIO', index); return true; }
     if (!av) return false;
     try { av.setSelectTrack('AUDIO', index); return true; } catch (e) { return false; }
   }
 
   /** Shift the TV's own subtitle timing (ms, negative = earlier). Returns false if not supported. */
   function setTextOffset(ms) {
+    if (droid) return false;
     if (!av || !av.setSubtitlePosition) return false;
     try { av.setSubtitlePosition(ms); return true; } catch (e) { return false; }
   }
 
   /** Show subtitle track `index`, or hide subtitles with -1. */
   function selectText(index) {
+    if (droid) return droid.selectTrack('TEXT', index);
     if (!av) return;
     try {
       if (index < 0) { av.setSilentSubtitle(true); return; }
@@ -239,10 +270,11 @@ var Player = (function () {
   }
 
   /** Speeds this player can do: the TV's player only knows whole numbers (1x, 2x), a browser any rate. */
-  function speeds() { return av ? [1, 2] : [1, 1.25, 1.5, 2]; }
+  function speeds() { return av && !droid ? [1, 2] : [1, 1.25, 1.5, 2]; }
 
   /** Playback speed; returns false when the TV refuses (some files only play at 1x). */
   function setSpeed(rate) {
+    if (droid) { droid.setSpeed(rate); return true; }
     try {
       if (av) { av.setSpeed(rate); return true; }
       if (video) { video.playbackRate = rate; return true; }
@@ -251,7 +283,7 @@ var Player = (function () {
   }
 
   // App sent to background / brought back (multitasking)
-  function suspend() { if (av) { try { av.suspend(); } catch (e) {} } }
+  function suspend() { if (droid) return droid.pauseIfVideo(); if (av) { try { av.suspend(); } catch (e) {} } }
   function restore() { if (av) { try { av.restore(); } catch (e) {} } }
 
   return {
