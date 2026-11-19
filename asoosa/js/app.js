@@ -645,7 +645,9 @@
   function rotateNpNews() {
     NPX.newsAt = Date.now();
     var all = [];
-    homeCfg().news.forEach(function (f, i) { var n = HOME.news[i]; if (n && n.items) n.items.forEach(function (it) { all.push(it); }); });
+    // one headline from each feed in turn (world, Switzerland, Egypt, Arabic…), not one feed after another
+    var feeds = homeCfg().news.map(function (f, i) { return (HOME.news[i] && HOME.news[i].items) || []; });
+    for (var k = 0; k < 12; k++) feeds.forEach(function (items) { if (items[k]) all.push(items[k]); });
     if (!all.length) { $('npb-news-text').textContent = 'Loading news…'; return; }
     var it = all[NPX.newsIdx++ % all.length], el = $('npb-news-text');
     el.style.opacity = 0;
@@ -2460,7 +2462,9 @@
       sportsGroup: h.sportsGroup || 'BEIN',
       news: h.news || [
         { title: 'World news', source: 'BBC', url: 'https://feeds.bbci.co.uk/news/world/rss.xml' },
-        { title: 'Switzerland', source: '20 Minuten', url: 'https://partner-feeds.20min.ch/rss/20minuten/schweiz' }
+        { title: 'Switzerland', source: '20 Minuten', url: 'https://partner-feeds.20min.ch/rss/20minuten/schweiz' },
+        { title: 'Egypt · أخبار مصر', source: 'اليوم السابع', url: 'https://www.youm7.com/rss/SectionRss?SectionID=65' },
+        { title: 'Arabic · أخبار عربية', source: 'BBC عربي', url: 'https://feeds.bbci.co.uk/arabic/rss.xml' }
       ],
       // Leagues without a TV guide: which channels to show (a search; " | " separates alternatives).
       // Egyptian league: ON Sport; every other match: beIN Sports ("*").
