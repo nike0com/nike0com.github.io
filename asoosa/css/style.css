@@ -661,3 +661,8 @@ body.tall #np-verse { left: 30px; right: 30px; top: 460px; bottom: 680px; }
 body.tall #np-hint { bottom: 636px; padding: 0 30px; }
 body.tall #np-board { left: 24px; right: 24px; bottom: 24px; height: 600px; flex-direction: column; }
 body.tall .npb { margin: 6px 0; flex: 1; }
+
+/* Live cams (Home row): picture, LIVE badge, name */
+.hcard.cam { width: 480px; }
+.hcard.cam .n-img { width: 220px; }
+.cam-live { position: absolute; left: 12px; top: 12px; padding: 2px 10px; border-radius: 8px; font-size: 16px; font-weight: bold; background: var(--red); color: #fff; }

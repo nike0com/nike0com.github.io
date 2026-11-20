@@ -910,6 +910,7 @@
       if (S.live.channels.length) {
         items.push({ id: 'all', label: 'All channels', count: S.live.allIdx.length });
         items.push({ id: 'fav', label: '★ Favorites', count: favList().length });
+        items.push({ id: 'cams', label: '◉ Live cams', count: Cams.list.length });
         for (var i = 0; i < S.live.groups.length; i++) {
           items.push({ id: 'g:' + S.live.groups[i], label: S.live.groups[i], count: S.live.groupLists[i].length });
         }
@@ -1013,6 +1014,11 @@
         var ln = S.live.lname;
         view = searchIn(S.live.allIdx, function (idx) { return ln[idx]; }, S.query);
         title = (S.queryLabel || 'Search “' + S.query + '”') + ' · ' + view.length;
+      } else if (gi && gi.id === 'cams') {
+        // live cams of the world (YouTube), not channels of the subscription
+        kind = 'cam';
+        view = Cams.list;
+        title = 'Live cams · ' + view.length;
       } else if (gi) {
         view = gi.id === 'fav' ? favList() : liveListFor(gi.id);
         title = splitLabel(gi.label).name + ' · ' + view.length;
@@ -1156,11 +1162,13 @@
       r._q.style.display = 'none';
       r._num.textContent = i + 1;
       r._name.textContent = it.n;
-      if (kind === 'radio' || kind === 'reciter' || kind === 'surah' || kind === 'khatma' || kind === 'dhikr') {
+      if (kind === 'radio' || kind === 'reciter' || kind === 'surah' || kind === 'khatma' || kind === 'dhikr' || kind === 'cam') {
         r._num.textContent = i + 1;
         r._name.textContent = it.n;
         r._fav.textContent = kind === 'radio' && isRadioFav(it.id) ? '★' : kind === 'reciter' ? '›' : '';
-        if (kind === 'radio') setLogo(r._logo, it.l); else r._logo.style.display = 'none';
+        if (kind === 'radio' || kind === 'cam') setLogo(r._logo, it.l); else r._logo.style.display = 'none';
+        r._q.textContent = kind === 'cam' ? it.cat : '';
+        r._q.style.display = kind === 'cam' ? '' : 'none';
         if (isPlayingRow(i)) r.classList.add('playing'); else r.classList.remove('playing');
         return;
       }
@@ -2186,6 +2194,7 @@
     if (kind === 'series') return openSeries(it);
     if (kind === 'reciter') return openReciter(it);
     if (kind === 'khatma') return khatmaAction(it);
+    if (kind === 'cam') return openCam(it);
     if (kind === 'dhikr') { S.zap = { kind: 'dhikr', list: S.view.slice() }; playDhikr(it); return; }
     if (kind === 'radio') { S.zap = { kind: 'radio', list: S.view.slice() }; playRadio(it, (S.groupItems[S.groupSel] || {}).id); return; }
     if (kind === 'surah') { S.zap = { kind: 'surah', list: S.view.slice(), reciter: S.reciter.r }; playSurah(it, S.reciter.r); return; }
@@ -3021,6 +3030,7 @@
     rows.push({ key: 'results', id: 'results', title: 'Results', items: res, empty: HOME.resultsOld || HOME.matches ? 'No results in the last days' : 'Loading results…' });
     rows.push({ key: 'pray', id: 'pray', title: 'Prayer times · ' + homeCfg().weather.name, items: prayerCards(), empty: 'Loading prayer times…' });
     rows.push({ key: 'table', id: 'table', title: 'League tables', items: tableCards(), empty: 'Loading tables…' });
+    rows.push({ key: 'cams', id: 'cams', title: '◉ Live cams', items: Cams.list, empty: '' });
     homeCfg().news.forEach(function (feed, i) {
       var n = HOME.news[i];
       rows.push({ key: 'news:' + i, id: 'news', title: feed.title, items: n ? n.items : [], empty: !n ? 'Loading news…' : n.error ? 'News unavailable (' + n.error + ')' : 'No news' });
@@ -3112,6 +3122,10 @@
       return '<div class="hcard table"><div class="t-title">' + esc(it.name) + '</div>' + rowsH + '</div>';
     }
     if (type === 'results') return resultHtml(it);
+    if (type === 'cams') {
+      return '<div class="hcard news pic cam"><img class="n-img" src="' + esc(it.l) + '"><span class="cam-live">● LIVE</span>' +
+        '<div class="n-body"><div class="n-title" dir="auto">' + esc(it.n) + '</div><div class="n-meta">' + esc(it.cat) + '</div></div></div>';
+    }
     if (type === 'cw') {
       var pic = it.kind === 'episode' ? it.series && it.series.l : it.item.l;
       var title = it.kind === 'episode' ? cleanTitle(it.series.n) + ' ' + (it.item.n.split(' · ')[0] || '') : cleanTitle(it.item.n);
@@ -3166,6 +3180,7 @@
   function openHomeItem(type, it) {
     if (type === 'news') { openReader(it); return; }
     if (type === 'table') { openTable(it); return; }
+    if (type === 'cams') { openCam(it); return; }
     if (type === 'pray' || type === 'rate' || type === 'results') return;
     if (type === 'favs') {
       S.zapCtx = 'fav'; S.zap = { kind: 'live', list: favList() };
@@ -3328,7 +3343,13 @@
    * Trailer inside the app. YouTube refuses to play in a player that has no web address (Error 153),
    * and a TV app has none, so the player is a small page on GitHub Pages (config "trailerPage").
    */
-  function playTrailer(id) {
+  /** A live cam: full screen like a trailer; the page switches to the channel's live if the video ended. */
+  function openCam(cam) {
+    playTrailer(cam.v, cam.c);
+    toast('◉ ' + cam.n + '  ·  BACK to close', 3000);
+  }
+
+  function playTrailer(id, channel) {
     if (!id) return;
     var box = $('trailer');
     if (S.playing) Player.stop();            // no sound from the channel behind the trailer
@@ -3336,7 +3357,7 @@
     var f = document.createElement('iframe');
     f.tabIndex = -1;                         // keep the remote keys (BACK) in the app, not in the video page
     f.setAttribute('allow', 'autoplay; fullscreen; encrypted-media');
-    f.src = page + '?v=' + encodeURIComponent(id);
+    f.src = page + '?v=' + encodeURIComponent(id) + (channel ? '&c=' + encodeURIComponent(channel) : '');
     box.appendChild(f);
     box.classList.remove('hidden');
     S.focusBeforeTrailer = S.focus;
@@ -3902,7 +3923,7 @@
   function homeRowList() {
     var lay = Store.lsGet('homeRows') || {}, order = lay.order || [];
     var defs = [{ key: 'matches', title: 'Matches' }, { key: 'results', title: 'Results' }, { key: 'pray', title: 'Prayer times' },
-      { key: 'table', title: 'League tables' }];
+      { key: 'table', title: 'League tables' }, { key: 'cams', title: 'Live cams' }];
     homeCfg().news.forEach(function (f, i) { defs.push({ key: 'news:' + i, title: 'News · ' + f.title }); });
     defs.push({ key: 'rate', title: 'Exchange rates' }, { key: 'cw', title: 'Continue watching' },
       { key: 'recent', title: 'Recently watched' }, { key: 'favs', title: 'Favorite channels' });
