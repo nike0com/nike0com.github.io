@@ -664,23 +664,24 @@ body.tall .npb { margin: 6px 0; flex: 1; }
 
 
 /* verse and hadith of the day (Home row) */
-.hcard.daily { width: 720px; height: 190px; padding: 16px 24px; }
+.hcard.daily { width: 760px; height: 236px; padding: 16px 24px; }
 .d-kind { font-size: 18px; color: var(--muted); }
 .d-ar { font-size: 28px; line-height: 1.55; height: 88px; overflow: hidden; margin-top: 6px; }
-.d-ref { font-size: 17px; color: #b9a8ff; margin-top: 8px; unicode-bidi: plaintext; }
+.d-de { font-size: 19px; line-height: 1.35; color: #d5dbe6; height: 52px; overflow: hidden; margin-top: 4px; }
+.d-ref { font-size: 17px; color: #b9a8ff; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; unicode-bidi: plaintext; }
 #reader.daily #rd-text { max-height: 660px; white-space: pre-wrap; }
 #reader.daily #rd-title { font-size: 36px; }
 
 /* Hijri calendar (Home row): today, then the occasions by days left */
-.hcard.hijri { width: 250px; height: 150px; padding: 14px 18px; text-align: center; }
+.hcard.hijri { width: 290px; height: 172px; padding: 14px 18px; text-align: center; }
 .hcard.hijri.today { width: 380px; background: linear-gradient(160deg, rgba(212,175,55,.35), rgba(212,175,55,.08)); }
 .hcard.hijri.soon { box-shadow: inset 0 0 0 2px rgba(212,175,55,.7); }
 .hj-wd, .hj-en { font-size: 19px; color: var(--muted); }
 .hj-date { font-size: 34px; font-weight: bold; margin-top: 4px; }
 .hj-ar { font-size: 30px; font-weight: bold; }
-.hj-n { font-size: 26px; color: var(--gold); margin-top: 4px; }
+.hj-n { font-size: 24px; color: var(--gold); margin-top: 4px; }
 .hj-g { font-size: 17px; color: var(--muted); margin-top: 4px; }
-.hj-fast { font-size: 20px; color: var(--gold); margin-top: 6px; }
+.hj-fast { font-size: 19px; color: var(--gold); margin-top: 3px; }
 
 /* screensaver (TV) */
 #saver { position: fixed; left: 0; top: 0; width: 100%; height: 100%; z-index: 50; background: #000; overflow: hidden; }
@@ -698,4 +699,5 @@ body.tall .npb { margin: 6px 0; flex: 1; }
 #sv-hijri { font-size: 36px; margin-top: 6px; color: #f3dc8c; unicode-bidi: plaintext; }
 #sv-pray { font-size: 30px; margin-top: 14px; color: #d9d0ff; }
 #sv-verse { font-size: 32px; line-height: 1.6; margin-top: 18px; unicode-bidi: plaintext; }
+#sv-de { font-size: 24px; line-height: 1.4; margin-top: 8px; color: #e6e9f0; max-width: 1000px; }
 #sv-credit { position: absolute; right: 24px; bottom: 14px; font-size: 15px; color: rgba(255,255,255,.55); max-width: 900px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -2755,14 +2755,21 @@
   /* ---- Hijri calendar: today's Hijri date, days left to the occasions, fasting reminder ---- */
 
   var AR_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+  // German for the Hijri calendar, fasting reminder, verse / hadith and screensaver (the family reads German)
+  var DE_DAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+  var DE_MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+  function deDate(d) { return DE_DAYS[d.getDay()] + ', ' + d.getDate() + '. ' + DE_MONTHS[d.getMonth()] + ' ' + d.getFullYear(); }
+  function deShortDate(d) { return DE_DAYS[d.getDay()].substring(0, 2) + ', ' + d.getDate() + '. ' + DE_MONTHS[d.getMonth()].substring(0, 3) + ' ' + d.getFullYear(); }
+  function deIn(n) { return n === 0 ? 'heute' : n === 1 ? 'morgen' : 'in ' + n + ' Tagen'; }
+  function deLeft(mins) { return 'noch ' + (mins >= 60 ? Math.floor(mins / 60) + ' Std. ' + (mins % 60) + ' Min.' : mins + ' Min.'); }
   var OCCASIONS = [
     { k: 'ramadan', hm: 9, hd: 1, ar: 'رمضان', en: 'Ramadan' },
-    { k: 'fitr', hm: 10, hd: 1, ar: 'عيد الفطر', en: 'Eid al-Fitr' },
-    { k: 'arafah', hm: 12, hd: 9, ar: 'يوم عرفة', en: 'Day of Arafah' },
-    { k: 'adha', hm: 12, hd: 10, ar: 'عيد الأضحى', en: 'Eid al-Adha' },
-    { k: 'newyear', hm: 1, hd: 1, ar: 'رأس السنة الهجرية', en: 'Islamic New Year' },
-    { k: 'ashura', hm: 1, hd: 10, ar: 'عاشوراء', en: 'Ashura' },
-    { k: 'white', hd: 13, ar: 'الأيام البيض', en: 'White days · 13–15' }
+    { k: 'fitr', hm: 10, hd: 1, ar: 'عيد الفطر', en: 'Fest des Fastenbrechens' },
+    { k: 'arafah', hm: 12, hd: 9, ar: 'يوم عرفة', en: 'Tag von Arafat' },
+    { k: 'adha', hm: 12, hd: 10, ar: 'عيد الأضحى', en: 'Opferfest' },
+    { k: 'newyear', hm: 1, hd: 1, ar: 'رأس السنة الهجرية', en: 'Islamisches Neujahr' },
+    { k: 'ashura', hm: 1, hd: 10, ar: 'عاشوراء', en: 'Aschura' },
+    { k: 'white', hd: 13, ar: 'الأيام البيض', en: 'Weiße Tage · 13.–15.' }
   ];
   HOME.occ = {};                                       // occasion key -> ms (noon of that day)
 
@@ -2805,12 +2812,12 @@
     if (!h) return null;
     if ((h.m === 10 && h.d === 1) || (h.m === 12 && h.d >= 10 && h.d <= 13)) return null;   // Eid and Tashreeq: no fasting
     if (h.m === 9) return null;                                                             // Ramadan: every day anyway
-    if (h.m === 12 && h.d === 9) return { ar: 'صيام يوم عرفة', en: 'Day of Arafah' };
-    if (h.m === 1 && h.d === 9) return { ar: 'صيام تاسوعاء', en: 'Tasu\'a (9 Muharram)' };
-    if (h.m === 1 && h.d === 10) return { ar: 'صيام عاشوراء', en: 'Ashura (10 Muharram)' };
-    if (h.d >= 13 && h.d <= 15) return { ar: 'صيام الأيام البيض', en: 'White days (' + h.d + ' ' + h.mEn + ')' };
-    if (d.getDay() === 1) return { ar: 'صيام الاثنين', en: 'Monday' };
-    if (d.getDay() === 4) return { ar: 'صيام الخميس', en: 'Thursday' };
+    if (h.m === 12 && h.d === 9) return { ar: 'صيام يوم عرفة', en: 'Fasten am Tag von Arafat' };
+    if (h.m === 1 && h.d === 9) return { ar: 'صيام تاسوعاء', en: 'Fasten an Tasu\'a (9. Muharram)' };
+    if (h.m === 1 && h.d === 10) return { ar: 'صيام عاشوراء', en: 'Fasten an Aschura (10. Muharram)' };
+    if (h.d >= 13 && h.d <= 15) return { ar: 'صيام الأيام البيض', en: 'Fasten an den Weißen Tagen (' + h.d + '. ' + h.mEn + ')' };
+    if (d.getDay() === 1) return { ar: 'صيام الاثنين', en: 'Montagsfasten' };
+    if (d.getDay() === 4) return { ar: 'صيام الخميس', en: 'Donnerstagsfasten' };
     return null;
   }
 
@@ -2818,15 +2825,16 @@
     var now = new Date(), h = hijriOf(now);
     if (!h) return [];
     var tm = new Date(Date.now() + 86400000), fast = fastReason(tm, hijriOf(tm)) || null;
-    var cards = [{ k: 'today', h: h, wd: AR_DAYS[now.getDay()], g: FULL_DAYS[now.getDay()] + ', ' + now.getDate() + ' ' + MONTHS[now.getMonth()] + ' ' + now.getFullYear(),
-      fast: fastReason(now, h) ? fastReason(now, h).ar + ' اليوم' : fast ? 'غداً: ' + fast.ar : '' }];
+    var tf = fastReason(now, h);
+    var cards = [{ k: 'today', h: h, wd: AR_DAYS[now.getDay()], g: deDate(now),
+      fast: tf ? tf.ar + ' اليوم' : fast ? 'غداً: ' + fast.ar : '', fastDe: tf ? 'Heute: ' + tf.en : fast ? 'Morgen: ' + fast.en : '' }];
     var occ = [];
     OCCASIONS.forEach(function (o) {
       var t = HOME.occ[o.k];
       if (!t) return;
       var c = { k: o.k, ar: o.ar, en: o.en, at: t, n: daysUntil(t) };
-      if (o.k === 'ramadan' && h.m === 9) { c.n = 0; c.now = 'اليوم ' + h.d + ' من رمضان'; }
-      if (o.k === 'white' && h.d >= 13 && h.d <= 15) { c.n = 0; c.now = 'اليوم ' + h.d; }
+      if (o.k === 'ramadan' && h.m === 9) { c.n = 0; c.now = 'اليوم ' + h.d + ' من رمضان'; c.nowDe = h.d + '. Tag des Ramadan'; }
+      if (o.k === 'white' && h.d >= 13 && h.d <= 15) { c.n = 0; c.now = 'اليوم ' + h.d; c.nowDe = 'heute'; }
       if (c.n >= 0) occ.push(c);
     });
     occ.sort(function (a, b) { return a.n - b.n; });
@@ -2845,8 +2853,8 @@
     if (!why) return;
     fastAsked = today;
     Store.lsSet('fastAsked', today);
-    showAlert('صيام غداً  ·  Fasting tomorrow', esc(why.ar) + '<br><small>' + esc(why.en) + '  ·  Fajr ' + esc(tt.Fajr) + '</small>',
-      'OK', 'Close', null, null, 60000, true);
+    showAlert('صيام غداً  ·  Morgen ist Fastentag', esc(why.ar) + '<br><small>' + esc(why.en) + '  ·  Fadschr (Fajr) ' + esc(tt.Fajr) + '</small>',
+      'OK', 'Schließen', null, null, 60000, true);
   }
 
   /* ---- verse and hadith of the day ---- */
@@ -2858,7 +2866,7 @@
     if (HOME.daily.ayah && HOME.daily.hadith) return;
     if (Date.now() - (HOME.dailyTry || 0) < 5 * 60000) return;          // offline: don't ask every few seconds
     HOME.dailyTry = Date.now();
-    Daily.ayah(quranTr(), function (err, v) {
+    Daily.ayah('de.bubenheim', function (err, v) {           // German, for the whole family
       if (!err) { v.kind = 'ayah'; HOME.daily.ayah = v; }
       if (S.section === 'home') renderHomeRows();
     });
@@ -2873,9 +2881,10 @@
   function openDaily(it) {
     var ayah = it.kind === 'ayah';
     openReader({
-      title: ayah ? 'آية اليوم  ·  Verse of the day' : 'حديث اليوم  ·  Hadith of the day',
+      title: ayah ? 'آية اليوم  ·  Vers des Tages' : 'حديث اليوم  ·  Hadith des Tages',
       source: ayah ? it.refAr + '  ·  ' + it.ref : it.srcAr + '  ·  ' + it.src,
-      text: it.ar + ((ayah ? it.tr : it.en) ? '\n\n' + (ayah ? it.tr : it.en) : '')
+      text: ayah ? it.ar + (it.tr ? '\n\n' + it.tr : '')
+        : it.ar + (it.de ? '\n\n' + it.de : '') + (it.expl ? '\n\nErklärung: ' + it.expl : '')
     });
     $('reader').classList.add('daily');
     var el = $('rd-text'), size = 36;
@@ -3158,8 +3167,8 @@
     var res = resultCards();
     rows.push({ key: 'results', id: 'results', title: 'Results', items: res, empty: HOME.resultsOld || HOME.matches ? 'No results in the last days' : 'Loading results…' });
     rows.push({ key: 'pray', id: 'pray', title: 'Prayer times · ' + homeCfg().weather.name, items: prayerCards(), empty: 'Loading prayer times…' });
-    rows.push({ key: 'daily', id: 'daily', title: 'Verse & hadith of the day', items: dailyCards(), empty: 'Loading…' });
-    rows.push({ key: 'hijri', id: 'hijri', title: 'Hijri calendar', items: hijriCards(), empty: 'Loading the Hijri date…' });
+    rows.push({ key: 'daily', id: 'daily', title: 'Vers & Hadith des Tages  ·  آية وحديث اليوم', items: dailyCards(), empty: 'Loading…' });
+    rows.push({ key: 'hijri', id: 'hijri', title: 'Islamischer Kalender  ·  التقويم الهجري', items: hijriCards(), empty: 'Hidschri-Datum wird geladen…' });
     rows.push({ key: 'table', id: 'table', title: 'League tables', items: tableCards(), empty: 'Loading tables…' });
     homeCfg().news.forEach(function (feed, i) {
       var n = HOME.news[i];
@@ -3254,18 +3263,19 @@
     if (type === 'results') return resultHtml(it);
     if (type === 'daily') {
       var ay = it.kind === 'ayah';
-      return '<div class="hcard daily"><div class="d-kind">' + (ay ? 'آية اليوم  ·  Verse of the day' : 'حديث اليوم  ·  Hadith of the day') + '</div>' +
-        '<div class="d-ar" dir="rtl">' + esc(ay ? it.ar : it.short) + '</div><div class="d-ref">' + esc(ay ? it.refAr + '  ·  ' + it.ref : it.srcAr) + '</div></div>';
+      return '<div class="hcard daily"><div class="d-kind">' + (ay ? 'آية اليوم  ·  Vers des Tages' : 'حديث اليوم  ·  Hadith des Tages') + '</div>' +
+        '<div class="d-ar" dir="rtl">' + esc(ay ? it.ar : it.short) + '</div><div class="d-de">' + esc(ay ? it.tr : it.deShort) + '</div>' +
+        '<div class="d-ref">' + esc(ay ? it.refAr + '  ·  ' + it.ref : it.srcAr) + '</div></div>';
     }
     if (type === 'hijri') {
       if (it.k === 'today') {
         return '<div class="hcard hijri today"><div class="hj-wd">' + esc(it.wd) + '</div><div class="hj-date" dir="rtl">' + esc(hijriText(it.h)) + '</div>' +
-          '<div class="hj-g">' + esc(it.g) + '</div><div class="hj-fast" dir="rtl">' + esc(it.fast) + '</div></div>';
+          '<div class="hj-g">' + esc(it.g) + '</div><div class="hj-fast" dir="rtl">' + esc(it.fast) + '</div><div class="hj-fast">' + esc(it.fastDe) + '</div></div>';
       }
       var dd = new Date(it.at);
       var when = it.now || (it.n === 0 ? 'اليوم' : it.n === 1 ? 'غداً' : 'بعد ' + it.n + ' يوم');
       return '<div class="hcard hijri' + (it.n <= 7 ? ' soon' : '') + '"><div class="hj-ar">' + esc(it.ar) + '</div><div class="hj-en">' + esc(it.en) + '</div>' +
-        '<div class="hj-n" dir="rtl">' + esc(when) + '</div><div class="hj-g">' + esc(DAY_NAMES[dd.getDay()] + ' ' + dd.getDate() + ' ' + MONTHS[dd.getMonth()].substring(0, 3) + ' ' + dd.getFullYear()) + '</div></div>';
+        '<div class="hj-n" dir="rtl">' + esc(when) + '</div><div class="hj-g">' + esc((it.nowDe || deIn(it.n)) + '  ·  ' + deShortDate(dd)) + '</div></div>';
     }
     if (type === 'cw') {
       var pic = it.kind === 'episode' ? it.series && it.series.l : it.item.l;
@@ -3897,7 +3907,7 @@
       el.id = 'saver';
       el.innerHTML = '<div class="sv-bg"></div><div class="sv-bg"></div><div class="sv-shade"></div>' +
         '<div id="sv-box"><div id="sv-time"></div><div id="sv-date"></div><div id="sv-hijri" dir="rtl"></div>' +
-        '<div id="sv-pray"></div><div id="sv-verse" dir="rtl"></div></div><div id="sv-credit"></div>';
+        '<div id="sv-pray"></div><div id="sv-verse" dir="rtl"></div><div id="sv-de"></div></div><div id="sv-credit"></div>';
       document.body.appendChild(el);
     }
     SAVER = { pics: [], i: 0, layer: 0, fails: 0 };
@@ -3941,15 +3951,16 @@
     var d = new Date(), h = hijriOf(d), w = HOME.weather;
     $('sv-box').className = 'pos' + (Math.floor(Date.now() / 300000) % 4);
     $('sv-time').textContent = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
-    $('sv-date').textContent = FULL_DAYS[d.getDay()] + ', ' + d.getDate() + ' ' + MONTHS[d.getMonth()] + (w ? '   ·   ' + Math.round(w.temp) + '°' : '');
+    $('sv-date').textContent = deDate(d) + (w ? '   ·   ' + Math.round(w.temp) + '°' : '');
     $('sv-hijri').textContent = h ? AR_DAYS[d.getDay()] + '  ·  ' + hijriText(h) : '';
     var next = null;
     prayerCards().forEach(function (c) { if (c.next) next = c; });
     var mins = next ? Math.max(0, Math.round((next.at - Date.now()) / 60000)) : 0;
-    $('sv-pray').textContent = next ? next.name + '  ' + next.ar + '  ' + next.time + '   ·   in ' +
-      (mins >= 60 ? Math.floor(mins / 60) + ' h ' + (mins % 60) + ' min' : mins + ' min') : '';
+    $('sv-pray').textContent = next ? next.name + '  ' + next.ar + '  ' + next.time + '   ·   ' + deLeft(mins) : '';
     var a = HOME.daily.ayah;
-    $('sv-verse').textContent = a && a.ar.length < 260 ? a.ar + '  ﴿' + a.refAr + '﴾' : '';
+    var showV = a && a.ar.length < 260;
+    $('sv-verse').textContent = showV ? a.ar + '  ﴿' + a.refAr + '﴾' : '';
+    $('sv-de').textContent = showV && a.tr && a.tr.length < 300 ? a.tr : '';
   }
 
   /* ---------------- sleep timer ---------------- */

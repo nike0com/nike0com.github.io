@@ -1,4 +1,4 @@
-/* Daily content: verse and hadith of the day, Hijri occasion dates (Aladhan), screensaver photos (Bing, else Wikimedia). ES5. */
+/* Daily content: verse (alquran.cloud) and hadith (HadeethEnc, Arabic + German) of the day, Hijri occasion dates (Aladhan), screensaver photos (Bing, else Wikimedia). ES5. */
 var Daily = (function () {
   'use strict';
 
@@ -47,10 +47,6 @@ var Daily = (function () {
     });
   }
 
-  /* ---------- hadith of the day: an-Nawawi's 42, then the 40 Hadith Qudsi ---------- */
-
-  var HAD = 'https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/';
-
   /** The Prophet's words: the quoted part of the narration. A dialogue (several quotes) stays whole. */
   function matn(t) {
     // the narration ends where the source note starts ("رواه …" / "حديث حسن …"); quotes after it are book names
@@ -66,22 +62,40 @@ var Daily = (function () {
     return all[0].slice(1, -1).replace(/^\s+|\s+$/g, '');
   }
 
-  /** cb(err, { ar, en, short, src, srcAr }) for today. */
+  /* ---------- hadith of the day: HadeethEnc.com, "good character" hadiths, Arabic + German ---------- */
+
+  var HE = 'https://hadeethenc.com/api/v1/hadeeths/';
+
+  /** Ids of the hadiths in the "Guter Charakter und Benehmen" category (258), kept for 30 days. */
+  function hadithIds(cb) {
+    var saved = Store.lsGet('hadithIds');
+    if (saved && saved.ids && saved.ids.length && Date.now() - saved.at < 30 * 86400000) return cb(null, saved.ids);
+    getJSON(HE + 'list/?language=de&category_id=5&page=1&per_page=400', function (err, j) {
+      var ids = j && j.data ? j.data.map(function (x) { return x.id; }) : [];
+      if (!ids.length) return cb(err || 'no hadiths', saved && saved.ids || []);
+      Store.lsSet('hadithIds', { at: Date.now(), ids: ids });
+      cb(null, ids);
+    });
+  }
+
+  /** cb(err, { ar, short, de, deShort, expl, src, srcAr }) for today. */
   function hadith(cb) {
     var key = String(dayNum()), saved = Store.lsGet('dailyHadith');
-    if (saved && saved.key === key) return cb(null, saved.v);
-    var i = dayNum() % 82, book = i < 42 ? 'nawawi' : 'qudsi', n = i < 42 ? i + 1 : i - 41;
-    getJSON(HAD + 'ara-' + book + '/' + n + '.min.json', function (err, j) {
-      var h = j && j.hadiths && j.hadiths[0];
-      if (err || !h || !h.text) return cb(err || 'no hadith');
-      var v = {
-        ar: h.text, en: '', short: matn(h.text),
-        src: (book === 'nawawi' ? 'An-Nawawi\'s Forty' : 'Forty Hadith Qudsi') + ' · ' + n,
-        srcAr: (book === 'nawawi' ? 'الأربعون النووية' : 'الأحاديث القدسية') + ' · ' + n
-      };
-      getJSON(HAD + 'eng-' + book + '/' + n + '.min.json', function (e2, j2) {
-        var h2 = j2 && j2.hadiths && j2.hadiths[0];
-        if (h2 && h2.text) v.en = h2.text;
+    if (saved && saved.key === key && saved.v.de != null) return cb(null, saved.v);
+    hadithIds(function (err, ids) {
+      if (!ids.length) return cb(err || 'no hadith');
+      getJSON(HE + 'one/?language=de&id=' + ids[dayNum() % ids.length], function (e, h) {
+        if (e || !h || !h.hadeeth_ar) return cb(e || 'no hadith');
+        var ar = h.hadeeth_ar, intro = h.hadeeth_intro_ar || '';
+        // the Prophet's words: the Arabic text after "عن … قال:"
+        var short = intro && ar.indexOf(intro) === 0 ? ar.substring(intro.length) : matn(ar);
+        var v = {
+          ar: ar, short: short.replace(/^[\s«"“]+|[\s»"”.]+$/g, ''),
+          de: h.hadeeth || '', deShort: String(h.title || '').replace(/^[\s„"“]+|[\s“"”.]+$/g, ''),
+          expl: h.explanation || '',
+          src: [h.attribution, h.grade].filter(function (x) { return x; }).join(' · '),
+          srcAr: [h.attribution_ar, h.grade_ar].filter(function (x) { return x; }).join(' · ')
+        };
         Store.lsSet('dailyHadith', { key: key, v: v });
         cb(null, v);
       });
