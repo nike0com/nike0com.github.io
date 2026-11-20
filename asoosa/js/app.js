@@ -536,10 +536,12 @@
 
   function playRadio(st, gid) {
     var prev = S.playing && S.playing.kind === 'radio' ? S.playing.gid : null;
+    Store.lsSet('last', { p: { kind: 'radio', item: st, gid: gid || prev } });      // reopened when the app starts
     startPlaying({ kind: 'radio', id: st.id, url: st.u, title: st.n, sub: st.tag || 'Radio', logo: st.l, ext: 'mp3', item: st, gid: gid || prev });
     RadioData.clicked(st.rb);
   }
   function playSurah(s, r, opts) {
+    Store.lsSet('last', { p: { kind: 'surah', item: s, reciter: { id: r.id, n: r.n, server: r.server, rewaya: r.rewaya, surahs: r.surahs } } });
     startPlaying({ kind: 'surah', id: s.id, url: RadioData.surahUrl(r, s.num), title: s.n.replace(/^\d+\s+/, 'سورة '), sub: r.n, logo: '', ext: 'mp3', item: s, reciter: r, num: s.num }, opts);
     saveKhatma(r, s.num, opts && opts.startMs || 0);
   }
@@ -853,6 +855,7 @@
 
   /** BACK while a radio plays: stop it and show the station list. */
   function stopRadio() {
+    Store.lsSet('last', null);                          // stopped on purpose: the app opens on Home next time
     Player.stop();
     S.playing = null;
     S.status = '';
@@ -2090,6 +2093,7 @@
   }
 
   function playMovie(m) {
+    Store.lsSet('last', { p: { kind: 'movie', item: { n: m.n, id: m.id, l: m.l, ext: m.ext, r: m.r } } });
     startPlaying({
       kind: 'movie', id: m.id, url: Xtream.movieUrl(S.acc, m.id, m.ext), title: m.n, sub: 'Movie', logo: m.l, ext: m.ext, posKey: 'm' + m.id,
       item: { n: m.n, id: m.id, l: m.l, ext: m.ext, r: m.r }
@@ -2097,6 +2101,8 @@
   }
 
   function playEpisode(ep, series) {
+    Store.lsSet('last', { p: { kind: 'episode', item: { n: ep.n, id: ep.id, ext: ep.ext, s: ep.s, e: ep.e },
+      series: { n: series.n, id: series.id, l: series.l, tmdb: series.tmdb || '' } } });
     startPlaying({
       kind: 'episode', id: ep.id, url: Xtream.episodeUrl(S.acc, ep.id, ep.ext), title: ep.n, sub: series.n, logo: series.l,
       ext: ep.ext, posKey: 'e' + ep.id, s: ep.s, e: ep.e, seriesTmdb: series.tmdb || '',
@@ -2453,6 +2459,7 @@
   /** Stop a movie/episode (position is saved) and show the Home screen instead of exiting. */
   function leaveVod() {
     savePos();
+    Store.lsSet('last', null);                          // left the movie on purpose: Home next time
     Player.stop();
     hideSub();
     S.subs.token++;
@@ -4417,8 +4424,29 @@
     updateHints();
 
     // 1) Auto-play the last live channel immediately, before config or channels are loaded.
-    var last = Store.lsGet('last'), autoPlayed = false;
-    if (last && last.p && last.p.url) {
+    var last = Store.lsGet('last'), autoPlayed = false, resumeLater = null;
+    var lp = last && last.p;
+    if (lp && lp.kind === 'radio' && lp.item && lp.item.u) {
+      // radio: straight away (it doesn't need the subscription)
+      autoPlayed = true;
+      playRadio(lp.item, lp.gid);
+    } else if (lp && lp.kind === 'surah' && lp.item && lp.reciter) {
+      // Quran: same surah and reciter, from where it stopped (the khatma keeps the position)
+      autoPlayed = true;
+      var kh = Store.lsGet('khatma'), at = kh && kh.r && kh.r.id === lp.reciter.id && kh.num === lp.item.num && kh.t > 30000 ? kh.t - 3000 : 0;
+      playSurah(lp.item, lp.reciter, at ? { startMs: at } : null);
+      RadioData.suwar(function (err, names) {         // the reciter's surah list, for next / previous
+        if (err || !S.playing || S.playing.kind !== 'surah') return;
+        var r = lp.reciter;
+        S.zap = { kind: 'surah', reciter: r, list: r.surahs.map(function (n) {
+          return { id: r.id + ':' + n, num: n, n: (n < 10 ? '00' : n < 100 ? '0' : '') + n + '  ' + (names[n] || 'Surah ' + n) };
+        }) };
+      });
+    } else if (lp && (lp.kind === 'movie' || lp.kind === 'episode') && lp.item) {
+      // movie / episode: needs the subscription, so it starts once the settings are read
+      autoPlayed = true;
+      resumeLater = lp;
+    } else if (lp && lp.url) {
       autoPlayed = true;
       S.zapCtx = last.ctx || 'all';
       var p = last.p;
@@ -4442,6 +4470,15 @@
       if (err) { openPanel('list'); listMsg(err); return; }
       S.cfg = cfg;
       S.acc = Xtream.account(cfg);
+      if (resumeLater && S.acc) {
+        if (resumeLater.kind === 'movie') playMovie(resumeLater.item);
+        else {
+          playEpisode(resumeLater.item, resumeLater.series);
+          Xtream.episodes(S.acc, resumeLater.series.id, function (err, list) {
+            if (!err && list.length) S.zap = { kind: 'episode', list: list, series: resumeLater.series };
+          });
+        }
+      } else if (resumeLater) { switchSection('home'); openPanel('home'); }
       if (cfg.bufferSeconds) Player.setBuffering(cfg.bufferSeconds);
       if (cfg.recordFolder) Recorder.setFolder(cfg.recordFolder);
       OpenSubs.setConfig(cfg.opensubtitles);
