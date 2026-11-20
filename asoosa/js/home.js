@@ -234,7 +234,7 @@ var HomeData = (function () {
 
   /* ---------- prayer times (Aladhan) ---------- */
 
-  /** cb(err, { date: 'YYYY-MM-DD', times: { Fajr: 'HH:MM', Sunrise, Dhuhr, Asr, Maghrib, Isha } }) for day `d`. */
+  /** cb(err, { day, times: { Fajr: 'HH:MM', Sunrise, Dhuhr, Asr, Maghrib, Isha, h: Hijri { d, m, mAr, mEn, y } } }) for day `d`. */
   function prayer(loc, method, d, cb) {
     var ds = (d.getDate() < 10 ? '0' : '') + d.getDate() + '-' + (d.getMonth() < 9 ? '0' : '') + (d.getMonth() + 1) + '-' + d.getFullYear();
     getJSON('https://api.aladhan.com/v1/timings/' + ds + '?latitude=' + loc.lat + '&longitude=' + loc.lon + '&method=' + method, function (err, j) {
@@ -242,6 +242,8 @@ var HomeData = (function () {
       if (err || !t) return cb(err || 'no prayer times');
       var times = {};
       ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].forEach(function (k) { times[k] = String(t[k] || '').substring(0, 5); });
+      var h = j.data.date && j.data.date.hijri;
+      if (h && h.month) times.h = { d: +h.day, m: h.month.number, mAr: h.month.ar, mEn: h.month.en, y: +h.year };   // Hijri date of that day
       cb(null, { day: d.toDateString(), times: times });
     });
   }

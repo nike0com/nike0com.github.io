@@ -2367,6 +2367,8 @@
   /* ---------------- key handling ---------------- */
 
   function onKey(e) {
+    lastInput = Date.now();
+    if (SAVER) { e.preventDefault(); closeSaver(); return; }      // any key only closes the screensaver
     var k = Keys.name(e);
     if (!k) return;
 
@@ -2697,7 +2699,7 @@
     var cfg = homeCfg(), days = [new Date(), new Date(Date.now() + 86400000)], pending = 0;
     days.forEach(function (d) {
       var key = d.toDateString();
-      if (HOME.prayer[key] && !force) return;
+      if (HOME.prayer[key] && HOME.prayer[key].h && !force) return;     // .h: the Hijri date came with it
       pending++;
       HomeData.prayer(cfg.weather, cfg.prayer.method || 3, d, function (err, r) {
         if (!err) {
@@ -2733,6 +2735,7 @@
 
   function checkPrayer() {
     checkAdhkar();
+    checkFasting();
     var cfg = homeCfg();
     if (!cfg.prayer.notify) return;
     var now = Date.now(), today = new Date().toDateString(), t = HOME.prayer[today];
@@ -2747,6 +2750,137 @@
         if (cfg.prayer.adhan !== false && !Store.lsGet('adhanOff') && S.playing && (S.playing.kind === 'radio' || S.playing.kind === 'surah')) playAdhan(p[0], p[1], t[p[0]]);
       }
     });
+  }
+
+  /* ---- Hijri calendar: today's Hijri date, days left to the occasions, fasting reminder ---- */
+
+  var AR_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+  var OCCASIONS = [
+    { k: 'ramadan', hm: 9, hd: 1, ar: 'رمضان', en: 'Ramadan' },
+    { k: 'fitr', hm: 10, hd: 1, ar: 'عيد الفطر', en: 'Eid al-Fitr' },
+    { k: 'arafah', hm: 12, hd: 9, ar: 'يوم عرفة', en: 'Day of Arafah' },
+    { k: 'adha', hm: 12, hd: 10, ar: 'عيد الأضحى', en: 'Eid al-Adha' },
+    { k: 'newyear', hm: 1, hd: 1, ar: 'رأس السنة الهجرية', en: 'Islamic New Year' },
+    { k: 'ashura', hm: 1, hd: 10, ar: 'عاشوراء', en: 'Ashura' },
+    { k: 'white', hd: 13, ar: 'الأيام البيض', en: 'White days · 13–15' }
+  ];
+  HOME.occ = {};                                       // occasion key -> ms (noon of that day)
+
+  function hijriOf(d) { var t = HOME.prayer[d.toDateString()]; return t && t.h; }
+  function hijriText(h) { return h.d + ' ' + h.mAr + ' ' + h.y + ' هـ'; }
+  function dayStart(ms) { var d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  function daysUntil(ms) { return Math.round((dayStart(ms) - dayStart(Date.now())) / 86400000); }
+
+  /** Hijri month and year of the next time this occasion comes (today counts). */
+  function nextHijri(o, h) {
+    var hm = o.hm, hy = h.y;
+    if (o.k === 'white') {
+      hm = h.m;
+      if (h.d > 15) { hm++; if (hm > 12) { hm = 1; hy++; } }
+      return { hm: hm, hy: hy };
+    }
+    if (h.m > hm || (h.m === hm && h.d > o.hd)) hy++;
+    return { hm: hm, hy: hy };
+  }
+
+  /** Gregorian dates of the occasions: asked once per Hijri day (then cached for good). */
+  function loadOccasions() {
+    var h = hijriOf(new Date());
+    if (!h) return;
+    var key = h.d + '-' + h.m + '-' + h.y;
+    if (HOME.occKey === key) return;
+    HOME.occKey = key;
+    var pending = OCCASIONS.length;
+    OCCASIONS.forEach(function (o) {
+      var n = nextHijri(o, h);
+      Daily.gregorian(o.hd, n.hm, n.hy, function (err, t) {
+        if (!err) HOME.occ[o.k] = t;
+        if (--pending === 0 && S.section === 'home') renderHomeRows();
+      });
+    });
+  }
+
+  /** Why day `d` (Hijri `h`) is a recommended fasting day, or null. */
+  function fastReason(d, h) {
+    if (!h) return null;
+    if ((h.m === 10 && h.d === 1) || (h.m === 12 && h.d >= 10 && h.d <= 13)) return null;   // Eid and Tashreeq: no fasting
+    if (h.m === 9) return null;                                                             // Ramadan: every day anyway
+    if (h.m === 12 && h.d === 9) return { ar: 'صيام يوم عرفة', en: 'Day of Arafah' };
+    if (h.m === 1 && h.d === 9) return { ar: 'صيام تاسوعاء', en: 'Tasu\'a (9 Muharram)' };
+    if (h.m === 1 && h.d === 10) return { ar: 'صيام عاشوراء', en: 'Ashura (10 Muharram)' };
+    if (h.d >= 13 && h.d <= 15) return { ar: 'صيام الأيام البيض', en: 'White days (' + h.d + ' ' + h.mEn + ')' };
+    if (d.getDay() === 1) return { ar: 'صيام الاثنين', en: 'Monday' };
+    if (d.getDay() === 4) return { ar: 'صيام الخميس', en: 'Thursday' };
+    return null;
+  }
+
+  function hijriCards() {
+    var now = new Date(), h = hijriOf(now);
+    if (!h) return [];
+    var tm = new Date(Date.now() + 86400000), fast = fastReason(tm, hijriOf(tm)) || null;
+    var cards = [{ k: 'today', h: h, wd: AR_DAYS[now.getDay()], g: FULL_DAYS[now.getDay()] + ', ' + now.getDate() + ' ' + MONTHS[now.getMonth()] + ' ' + now.getFullYear(),
+      fast: fastReason(now, h) ? fastReason(now, h).ar + ' اليوم' : fast ? 'غداً: ' + fast.ar : '' }];
+    var occ = [];
+    OCCASIONS.forEach(function (o) {
+      var t = HOME.occ[o.k];
+      if (!t) return;
+      var c = { k: o.k, ar: o.ar, en: o.en, at: t, n: daysUntil(t) };
+      if (o.k === 'ramadan' && h.m === 9) { c.n = 0; c.now = 'اليوم ' + h.d + ' من رمضان'; }
+      if (o.k === 'white' && h.d >= 13 && h.d <= 15) { c.n = 0; c.now = 'اليوم ' + h.d; }
+      if (c.n >= 0) occ.push(c);
+    });
+    occ.sort(function (a, b) { return a.n - b.n; });
+    return cards.concat(occ);
+  }
+
+  var fastAsked = Store.lsGet('fastAsked') || '';
+  /** In the evening (after Isha): "fasting tomorrow" for Monday / Thursday, White days, Arafah, Ashura. Once a day. */
+  function checkFasting() {
+    if (Store.lsGet('fastOff') || ALERT) return;
+    var now = new Date(), today = now.toDateString(), t = HOME.prayer[today];
+    var tm = new Date(Date.now() + 86400000), tt = HOME.prayer[tm.toDateString()];
+    if (!t || !tt || fastAsked === today) return;
+    if (Date.now() < prayerDate(today, t.Isha) + 20 * 60000 || now.getHours() >= 23) return;
+    var why = fastReason(tm, tt.h);
+    if (!why) return;
+    fastAsked = today;
+    Store.lsSet('fastAsked', today);
+    showAlert('صيام غداً  ·  Fasting tomorrow', esc(why.ar) + '<br><small>' + esc(why.en) + '  ·  Fajr ' + esc(tt.Fajr) + '</small>',
+      'OK', 'Close', null, null, 60000, true);
+  }
+
+  /* ---- verse and hadith of the day ---- */
+
+  HOME.daily = {};
+  function loadDaily() {
+    var dn = Daily.dayNum();
+    if (HOME.dailyDay !== dn) { HOME.dailyDay = dn; HOME.daily = {}; HOME.dailyTry = 0; }
+    if (HOME.daily.ayah && HOME.daily.hadith) return;
+    if (Date.now() - (HOME.dailyTry || 0) < 5 * 60000) return;          // offline: don't ask every few seconds
+    HOME.dailyTry = Date.now();
+    Daily.ayah(quranTr(), function (err, v) {
+      if (!err) { v.kind = 'ayah'; HOME.daily.ayah = v; }
+      if (S.section === 'home') renderHomeRows();
+    });
+    Daily.hadith(function (err, v) {
+      if (!err) { v.kind = 'hadith'; HOME.daily.hadith = v; }
+      if (S.section === 'home') renderHomeRows();
+    });
+  }
+  function dailyCards() { return [HOME.daily.ayah, HOME.daily.hadith].filter(function (x) { return x; }); }
+
+  /** The whole verse / hadith, with its translation, in the reader; the text shrinks until it fits. */
+  function openDaily(it) {
+    var ayah = it.kind === 'ayah';
+    openReader({
+      title: ayah ? 'آية اليوم  ·  Verse of the day' : 'حديث اليوم  ·  Hadith of the day',
+      source: ayah ? it.refAr + '  ·  ' + it.ref : it.srcAr + '  ·  ' + it.src,
+      text: it.ar + ((ayah ? it.tr : it.en) ? '\n\n' + (ayah ? it.tr : it.en) : '')
+    });
+    $('reader').classList.add('daily');
+    var el = $('rd-text'), size = 36;
+    el.style.fontSize = size + 'px';
+    while (el.scrollHeight > el.clientHeight + 2 && size > 18) { size -= 2; el.style.fontSize = size + 'px'; }
   }
 
   function loadRates() {
@@ -2871,6 +3005,8 @@
       });
     }
     loadPrayer(false);                                                  // only when a day is missing
+    loadDaily();
+    loadOccasions();
     if (force || !HOME.rates || now - HOME.rates.at > 6 * 3600000) { if (!HOME.ratesLoading) { HOME.ratesLoading = true; setTimeout(function () { HOME.ratesLoading = false; }, 60000); loadRates(); } }
     if (force || now - (HOME.tablesAt || 0) > 30 * 60000) { HOME.tablesAt = now; loadTables(); }
     if (force || now - (HOME.resultsAt || 0) > 30 * 60000) { HOME.resultsAt = now; loadResults(); }
@@ -2997,7 +3133,7 @@
     $('reader').classList.remove('hidden');
     S.focus = 'reader';
   }
-  function closeReader() { $('reader').classList.add('hidden'); $('reader').classList.remove('table'); setFocus('home'); }
+  function closeReader() { $('reader').classList.add('hidden'); $('reader').classList.remove('table'); $('reader').classList.remove('daily'); $('rd-text').style.fontSize = ''; setFocus('home'); }
 
   function matchWhen(m) {
     if (m.state === 'live') return '<span class="m-live">LIVE ' + esc(m.detail) + '</span>';
@@ -3022,6 +3158,8 @@
     var res = resultCards();
     rows.push({ key: 'results', id: 'results', title: 'Results', items: res, empty: HOME.resultsOld || HOME.matches ? 'No results in the last days' : 'Loading results…' });
     rows.push({ key: 'pray', id: 'pray', title: 'Prayer times · ' + homeCfg().weather.name, items: prayerCards(), empty: 'Loading prayer times…' });
+    rows.push({ key: 'daily', id: 'daily', title: 'Verse & hadith of the day', items: dailyCards(), empty: 'Loading…' });
+    rows.push({ key: 'hijri', id: 'hijri', title: 'Hijri calendar', items: hijriCards(), empty: 'Loading the Hijri date…' });
     rows.push({ key: 'table', id: 'table', title: 'League tables', items: tableCards(), empty: 'Loading tables…' });
     homeCfg().news.forEach(function (feed, i) {
       var n = HOME.news[i];
@@ -3114,6 +3252,21 @@
       return '<div class="hcard table"><div class="t-title">' + esc(it.name) + '</div>' + rowsH + '</div>';
     }
     if (type === 'results') return resultHtml(it);
+    if (type === 'daily') {
+      var ay = it.kind === 'ayah';
+      return '<div class="hcard daily"><div class="d-kind">' + (ay ? 'آية اليوم  ·  Verse of the day' : 'حديث اليوم  ·  Hadith of the day') + '</div>' +
+        '<div class="d-ar" dir="rtl">' + esc(ay ? it.ar : it.short) + '</div><div class="d-ref">' + esc(ay ? it.refAr + '  ·  ' + it.ref : it.srcAr) + '</div></div>';
+    }
+    if (type === 'hijri') {
+      if (it.k === 'today') {
+        return '<div class="hcard hijri today"><div class="hj-wd">' + esc(it.wd) + '</div><div class="hj-date" dir="rtl">' + esc(hijriText(it.h)) + '</div>' +
+          '<div class="hj-g">' + esc(it.g) + '</div><div class="hj-fast" dir="rtl">' + esc(it.fast) + '</div></div>';
+      }
+      var dd = new Date(it.at);
+      var when = it.now || (it.n === 0 ? 'اليوم' : it.n === 1 ? 'غداً' : 'بعد ' + it.n + ' يوم');
+      return '<div class="hcard hijri' + (it.n <= 7 ? ' soon' : '') + '"><div class="hj-ar">' + esc(it.ar) + '</div><div class="hj-en">' + esc(it.en) + '</div>' +
+        '<div class="hj-n" dir="rtl">' + esc(when) + '</div><div class="hj-g">' + esc(DAY_NAMES[dd.getDay()] + ' ' + dd.getDate() + ' ' + MONTHS[dd.getMonth()].substring(0, 3) + ' ' + dd.getFullYear()) + '</div></div>';
+    }
     if (type === 'cw') {
       var pic = it.kind === 'episode' ? it.series && it.series.l : it.item.l;
       var title = it.kind === 'episode' ? cleanTitle(it.series.n) + ' ' + (it.item.n.split(' · ')[0] || '') : cleanTitle(it.item.n);
@@ -3168,7 +3321,8 @@
   function openHomeItem(type, it) {
     if (type === 'news') { openReader(it); return; }
     if (type === 'table') { openTable(it); return; }
-    if (type === 'pray' || type === 'rate' || type === 'results') return;
+    if (type === 'daily') { openDaily(it); return; }
+    if (type === 'pray' || type === 'rate' || type === 'results' || type === 'hijri') return;
     if (type === 'favs') {
       S.zapCtx = 'fav'; S.zap = { kind: 'live', list: favList() };
       playLive(it);
@@ -3714,6 +3868,90 @@
     if (a && a[which]) a[which]();
   }
 
+  /* ---------------- screensaver (TV only) ---------------- */
+  // After some minutes without a key (and no video playing): big photos, the clock, Hijri date,
+  // next prayer and the verse of the day. Any key closes it. The text block moves every 5 minutes (no burn-in).
+
+  var SAVER_STEPS = [0, 5, 10, 20, 30];
+  var lastInput = Date.now(), SAVER = null;
+  function saverMin() { var v = Store.lsGet('saverMin'); return v == null ? 10 : v; }
+  function saverLabel() { var m = saverMin(); return m ? 'After ' + m + ' min without a key  ·  photos, clock, prayer, verse' : 'Off'; }
+  function cycleSaver() {
+    var i = SAVER_STEPS.indexOf(saverMin());
+    Store.lsSet('saverMin', SAVER_STEPS[(i + 1) % SAVER_STEPS.length]);
+    renderSettings();
+  }
+  function isAudio(p) { return p && (p.kind === 'radio' || p.kind === 'surah' || p.kind === 'dhikr' || p.kind === 'adhan'); }
+
+  function checkSaver() {
+    if (SAVER || window.AndroidPlayer || !saverMin() || ALERT || PROMPT || MENU || S.focus === 'trailer') return;
+    if (Date.now() - lastInput < saverMin() * 60000) return;
+    if (S.playing && !(isAudio(S.playing) && S.panel)) return;     // video, or the now-playing screen of the radio
+    openSaver();
+  }
+
+  function openSaver() {
+    var el = $('saver');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'saver';
+      el.innerHTML = '<div class="sv-bg"></div><div class="sv-bg"></div><div class="sv-shade"></div>' +
+        '<div id="sv-box"><div id="sv-time"></div><div id="sv-date"></div><div id="sv-hijri" dir="rtl"></div>' +
+        '<div id="sv-pray"></div><div id="sv-verse" dir="rtl"></div></div><div id="sv-credit"></div>';
+      document.body.appendChild(el);
+    }
+    SAVER = { pics: [], i: 0, layer: 0, fails: 0 };
+    el.className = '';
+    renderSaver();
+    var s = SAVER;
+    Daily.photos(function (list) { if (SAVER !== s) return; s.pics = list; nextSaverPic(); });
+    s.tick = setInterval(renderSaver, 10000);
+    s.next = setInterval(nextSaverPic, 45000);
+  }
+  function closeSaver() {
+    if (!SAVER) return;
+    clearInterval(SAVER.tick);
+    clearInterval(SAVER.next);
+    SAVER = null;
+    lastInput = Date.now();
+    $('saver').className = 'hidden';
+  }
+
+  /** Loads the next photo first, then fades it in over the old one. */
+  function nextSaverPic() {
+    var s = SAVER;
+    if (!s || !s.pics.length) return;
+    var pic = s.pics[s.i++ % s.pics.length], img = new Image();
+    img.onload = function () {
+      if (SAVER !== s) return;
+      s.fails = 0;
+      var layers = document.querySelectorAll('#saver .sv-bg');
+      s.layer = 1 - s.layer;
+      layers[s.layer].style.backgroundImage = 'url("' + pic.u.replace(/"/g, '%22') + '")';
+      layers[s.layer].className = 'sv-bg on';
+      layers[1 - s.layer].className = 'sv-bg';
+      $('sv-credit').textContent = pic.c;
+    };
+    img.onerror = function () { if (SAVER === s && ++s.fails < 5) nextSaverPic(); };
+    img.src = pic.u;
+  }
+
+  function renderSaver() {
+    if (!SAVER) return;
+    var d = new Date(), h = hijriOf(d), w = HOME.weather;
+    $('sv-box').className = 'pos' + (Math.floor(Date.now() / 300000) % 4);
+    $('sv-time').textContent = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    $('sv-date').textContent = FULL_DAYS[d.getDay()] + ', ' + d.getDate() + ' ' + MONTHS[d.getMonth()] + (w ? '   ·   ' + Math.round(w.temp) + '°' : '');
+    $('sv-hijri').textContent = h ? AR_DAYS[d.getDay()] + '  ·  ' + hijriText(h) : '';
+    var next = null;
+    prayerCards().forEach(function (c) { if (c.next) next = c; });
+    var mins = next ? Math.max(0, Math.round((next.at - Date.now()) / 60000)) : 0;
+    $('sv-pray').textContent = next ? next.name + '  ' + next.ar + '  ' + next.time + '   ·   in ' +
+      (mins >= 60 ? Math.floor(mins / 60) + ' h ' + (mins % 60) + ' min' : mins + ' min') : '';
+    var a = HOME.daily.ayah;
+    $('sv-verse').textContent = a && a.ar.length < 260 ? a.ar + '  ﴿' + a.refAr + '﴾' : '';
+  }
+
   /* ---------------- sleep timer ---------------- */
 
   var SLEEP_STEPS = [0, 30, 60, 90, 120];
@@ -3905,6 +4143,7 @@
   function homeRowList() {
     var lay = Store.lsGet('homeRows') || {}, order = lay.order || [];
     var defs = [{ key: 'matches', title: 'Matches' }, { key: 'results', title: 'Results' }, { key: 'pray', title: 'Prayer times' },
+      { key: 'daily', title: 'Verse & hadith of the day' }, { key: 'hijri', title: 'Hijri calendar' },
       { key: 'table', title: 'League tables' }];
     homeCfg().news.forEach(function (f, i) { defs.push({ key: 'news:' + i, title: 'News · ' + f.title }); });
     defs.push({ key: 'rate', title: 'Exchange rates' }, { key: 'cw', title: 'Continue watching' },
@@ -3959,10 +4198,12 @@
     return [
       { id: 'profiles', label: 'Profile', value: curProfile().name + (Store.profiles().length > 1 ? '  ·  OK to switch' : '  ·  OK to add family') },
       { id: 'sleep', label: 'Sleep timer', value: sleepLabel() },
+      { id: 'saver', label: 'Screensaver', value: saverLabel(), tvOnly: true },
       { id: 'quality', label: 'Live channel quality', value: fastStart() ? 'Fast start  ·  FHD first, 4K only if needed' : 'Best picture  ·  4K first' },
       { id: 'home', label: 'Home screen', value: 'show, hide and order the rows' },
       { id: 'quranTr', label: 'Quran translation', value: quranTrLabel() + '  ·  under each verse' },
       { id: 'adhkar', label: 'Adhkar reminder', value: Store.lsGet('adhkarOff') ? 'Off' : 'On  ·  after Fajr and after Asr' },
+      { id: 'fast', label: 'Fasting reminder', value: Store.lsGet('fastOff') ? 'Off' : 'On  ·  evening before Monday, Thursday, White days, Arafah, Ashura' },
       { id: 'adhan', label: 'Adhan on radio', value: Store.lsGet('adhanOff') ? 'Off' : 'On  ·  at each prayer the radio pauses for the adhan' },
       { id: 'subsize', label: 'Subtitle size', value: SUB_SIZES[subStyle.size || 0].n },
       { id: 'subcolor', label: 'Subtitle colour', value: SUB_COLORS[subStyle.color || 0].n },
@@ -3973,7 +4214,7 @@
       { id: 'restore', label: 'Restore from USB', value: SET.armed === 'restore' ? 'press OK again to restore' : '' },
       { id: 'sub', label: 'Subscription', value: acc0 },
       { id: 'update', label: 'App version ' + appVersion(), value: SET.updMsg || 'OK to check for updates' }
-    ];
+    ].filter(function (r) { return !(r.tvOnly && window.AndroidPlayer); });
   }
 
   function renderSettings() {
@@ -4077,6 +4318,8 @@
           renderSettings();
         }
         else if (row.id === 'adhkar') { Store.lsSet('adhkarOff', !Store.lsGet('adhkarOff')); renderSettings(); }
+        else if (row.id === 'fast') { Store.lsSet('fastOff', !Store.lsGet('fastOff')); renderSettings(); }
+        else if (row.id === 'saver') cycleSaver();
         else if (row.id === 'adhan') { Store.lsSet('adhanOff', !Store.lsGet('adhanOff')); renderSettings(); }
         else if (row.id === 'sleep') cycleSleep();
         else if (row.id === 'subsize' || row.id === 'subcolor' || row.id === 'subbg') {
@@ -4471,6 +4714,8 @@
     setInterval(checkPrayer, 20000);
     setInterval(function () { if (S.cfg && !HOME.prayer[new Date().toDateString()]) loadPrayer(false); }, 30 * 60000);
     setInterval(checkSleep, 10000);
+    setInterval(checkSaver, 15000);
+    document.addEventListener('mousedown', function () { lastInput = Date.now(); if (SAVER) closeSaver(); }, true);
     setInterval(pollMatches, 60000);
     // Daily automatic backup to the USB drive (silent; skipped when no drive is plugged in).
     setTimeout(function () {
