@@ -703,12 +703,19 @@
   /** Clock, weather and next prayer; your teams' live / coming / last matches. */
   function renderNpBoard() {
     var w = HOME.weather, cfg = homeCfg(), now = Date.now();
-    $('npb-weather').textContent = (w ? Math.round(w.temp) + '°  ' + HomeData.describe(w.code, w.day).text + '  ·  ' : '') + cfg.weather.name;
+    var d0 = new Date();
+    $('npb-date').textContent = FULL_DAYS[d0.getDay()] + ', ' + d0.getDate() + ' ' + MONTHS[d0.getMonth()];
+    $('npb-wicon').innerHTML = w ? wIcon(w.code, w.day) : '';
+    $('npb-temp').textContent = w ? Math.round(w.temp) + '°' : '';
+    $('npb-wtext').textContent = w ? HomeData.describe(w.code, w.day).text : '';
+    $('npb-date').textContent += '  ·  ' + cfg.weather.name;
     var next = prayerCards().filter(function (c) { return c.next; })[0];
     if (next) {
       var m = Math.max(0, Math.round((next.at - now) / 60000));
-      $('npb-prayer').textContent = next.name + ' ' + next.ar + '  ' + next.time + '  ·  in ' + (m >= 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : m + ' min');
-    } else $('npb-prayer').textContent = '';
+      $('npb-pname').textContent = next.name + '  ·  ' + next.ar + (next.tomorrow ? '  ·  tomorrow' : '');
+      $('npb-ptime').textContent = next.time;
+      $('npb-pleft').textContent = 'in ' + (m >= 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : m + ' min');
+    } else { $('npb-pname').textContent = ''; $('npb-ptime').textContent = ''; $('npb-pleft').textContent = ''; }
     var ms = (HOME.matches || []).filter(function (x) { return isFavMatch(x) && (x.state === 'live' || (x.state === 'pre' && x.time - now < 7 * 86400000)); });
     ms = ms.concat(resultCards().filter(isFavMatch)).slice(0, 3);
     var h = '';
@@ -728,11 +735,15 @@
     var feeds = homeCfg().news.map(function (f, i) { return (HOME.news[i] && HOME.news[i].items) || []; });
     for (var k = 0; k < 12; k++) feeds.forEach(function (items) { if (items[k]) all.push(items[k]); });
     if (!all.length) { $('npb-news-text').textContent = 'Loading news…'; return; }
-    var it = all[NPX.newsIdx++ % all.length], el = $('npb-news-text');
-    el.style.opacity = 0;
+    var it = all[NPX.newsIdx++ % all.length], el = $('npb-news-text'), img = $('npb-news-img');
+    el.style.opacity = 0; img.style.opacity = 0;
     setTimeout(function () {
       el.textContent = it.title;
-      $('npb-news-src').textContent = 'News · ' + (it.source || '') + (it.time ? '  ·  ' + ago(it.time) : '');
+      // the story's own picture (hidden when the feed has none)
+      if (it.image) { img.style.display = ''; img.onload = function () { img.style.opacity = 1; }; img.onerror = function () { img.style.display = 'none'; }; img.src = it.image; }
+      else img.style.display = 'none';
+      // <bdi>: an Arabic source name ("BBC عربي") must not mix with "12 min ago"
+      $('npb-news-src').innerHTML = 'News  ·  <bdi>' + esc(it.source || '') + '</bdi>' + (it.time ? '  ·  ' + ago(it.time) : '');
       el.style.opacity = 1;
     }, 400);
   }
@@ -760,6 +771,23 @@
     });
   }
 
+  /** Largest font at which the whole verse (and its translation) fits the middle of the screen. */
+  function fitVerse() {
+    var el = $('np-verse'), size = document.body.classList.contains('tall') ? 50 : 60;
+    var first = el.firstElementChild, last = el.lastElementChild;
+    if (!first) return;
+    // centered content can overflow at the top too, so measure from the verse's top to the translation's bottom
+    var tr = el.querySelector('.np-tr');
+    function tooBig() { return last.getBoundingClientRect().bottom - first.getBoundingClientRect().top > el.clientHeight; }
+    // the translation is half the verse's size, but never smaller than 22 so it stays readable
+    var trMin = 22;
+    function apply(sz) { el.style.fontSize = sz + 'px'; if (tr) tr.style.fontSize = Math.max(trMin, Math.round(sz * 0.5)) + 'px'; }
+    apply(size);
+    while (size > 24 && tooBig()) { size -= 3; apply(size); }
+    // only for the very longest verses on a narrow screen: let the translation go smaller too
+    if (tooBig()) { trMin = 14; while (size > 14 && tooBig()) { size -= 1; apply(size); } }
+  }
+
   function npQuranTick(p) {
     var t = Player.time(), d = Player.duration();
     $('np-bar').style.width = d ? Math.min(100, 100 * t / d) + '%' : '0';
@@ -776,8 +804,9 @@
     NPX.ayah = cur.ayah;
     var text = cur.ayah === 0 ? BASMALA : NPX.verses[cur.ayah - 1];
     var tr = cur.ayah && NPX.trans ? NPX.trans[cur.ayah - 1] : '';
-    $('np-verse').innerHTML = text ? esc(text) + (cur.ayah ? '  <small>﴿' + cur.ayah + '﴾</small>' : '') +
+    $('np-verse').innerHTML = text ? '<div>' + esc(text) + (cur.ayah ? '  <small>﴿' + cur.ayah + '﴾</small>' : '') + '</div>' +
       (tr ? '<div class="np-tr" dir="ltr">' + esc(tr) + '</div>' : '') : '';
+    fitVerse();
   }
 
   /*

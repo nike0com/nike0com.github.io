@@ -5,17 +5,31 @@
   <div id="np" class="hidden">
     <!-- the whole stage drifts a few pixels now and then, so nothing stays burnt in one place -->
     <div id="np-stage">
-      <div id="np-art"><div id="np-letter"></div><img id="np-logo" alt=""></div>
-      <div id="np-title" dir="auto"></div>
-      <div id="np-sub" dir="auto"></div>
-      <div id="np-song" dir="auto"></div>
+      <div id="np-head">
+        <div id="np-art"><div id="np-letter"></div><img id="np-logo" alt=""></div>
+        <div id="np-info">
+          <div id="np-title" dir="auto"></div>
+          <div id="np-sub" dir="auto"></div>
+          <div id="np-song" dir="auto"></div>
+          <div id="np-prog"><div id="np-track"><div id="np-bar"></div></div><span id="np-time"></span></div>
+          <div id="np-eq"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        </div>
+      </div>
       <div id="np-verse" dir="rtl"></div>
-      <div id="np-prog"><div id="np-track"><div id="np-bar"></div></div><span id="np-time"></span></div>
-      <div id="np-eq"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
       <div id="np-hint"></div>
       <div id="np-board">
-        <div class="npb" id="npb-day"><div class="npb-t">Today</div><div id="npb-clock"></div><div id="npb-weather"></div><div id="npb-prayer"></div></div>
-        <div class="npb" id="npb-news"><div class="npb-t" id="npb-news-src">News</div><div id="npb-news-text" dir="auto"></div></div>
+        <div class="npb" id="npb-day">
+          <div id="npb-clock"></div>
+          <div class="npb-col">
+            <div id="npb-date"></div>
+            <div id="npb-weather"><span id="npb-wicon"></span><b id="npb-temp"></b><span id="npb-wtext"></span></div>
+            <div id="npb-prayer"><bdi id="npb-pname"></bdi><div><b id="npb-ptime"></b><span id="npb-pleft"></span></div></div>
+          </div>
+        </div>
+        <div class="npb" id="npb-news">
+          <img id="npb-news-img" alt="">
+          <div class="npb-body"><div class="npb-t" id="npb-news-src">News</div><div id="npb-news-text" dir="auto"></div></div>
+        </div>
         <div class="npb" id="npb-score"><div class="npb-t">Your teams</div><div id="npb-matches"></div></div>
       </div>
     </div>
