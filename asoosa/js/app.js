@@ -910,7 +910,6 @@
       if (S.live.channels.length) {
         items.push({ id: 'all', label: 'All channels', count: S.live.allIdx.length });
         items.push({ id: 'fav', label: '★ Favorites', count: favList().length });
-        if (!window.AndroidPlayer) items.push({ id: 'cams', label: '◉ Live cams', count: Cams.list.length });   // TV only
         for (var i = 0; i < S.live.groups.length; i++) {
           items.push({ id: 'g:' + S.live.groups[i], label: S.live.groups[i], count: S.live.groupLists[i].length });
         }
@@ -1014,11 +1013,6 @@
         var ln = S.live.lname;
         view = searchIn(S.live.allIdx, function (idx) { return ln[idx]; }, S.query);
         title = (S.queryLabel || 'Search “' + S.query + '”') + ' · ' + view.length;
-      } else if (gi && gi.id === 'cams') {
-        // live cams: ad-free public streams (js/cams.js), not channels of the subscription
-        kind = 'cam';
-        view = Cams.list;
-        title = 'Live cams · ' + view.length;
       } else if (gi) {
         view = gi.id === 'fav' ? favList() : liveListFor(gi.id);
         title = splitLabel(gi.label).name + ' · ' + view.length;
@@ -1162,13 +1156,13 @@
       r._q.style.display = 'none';
       r._num.textContent = i + 1;
       r._name.textContent = it.n;
-      if (kind === 'radio' || kind === 'reciter' || kind === 'surah' || kind === 'khatma' || kind === 'dhikr' || kind === 'cam') {
+      if (kind === 'radio' || kind === 'reciter' || kind === 'surah' || kind === 'khatma' || kind === 'dhikr') {
         r._num.textContent = i + 1;
         r._name.textContent = it.n;
         r._fav.textContent = kind === 'radio' && isRadioFav(it.id) ? '★' : kind === 'reciter' ? '›' : '';
-        if (kind === 'radio' || kind === 'cam') setLogo(r._logo, it.l); else r._logo.style.display = 'none';
-        r._q.textContent = kind === 'cam' ? it.cat : '';
-        r._q.style.display = kind === 'cam' ? '' : 'none';
+        if (kind === 'radio') setLogo(r._logo, it.l); else r._logo.style.display = 'none';
+        r._q.textContent = '';
+        r._q.style.display = 'none';
         if (isPlayingRow(i)) r.classList.add('playing'); else r.classList.remove('playing');
         return;
       }
@@ -1347,7 +1341,7 @@
       hideBanner();
       var p = S.playing;
       if (p) {
-        var want = p.kind === 'live' || p.kind === 'cam' ? 'live' : p.kind === 'movie' ? 'movies' : p.kind === 'rec' ? 'rec'
+        var want = p.kind === 'live' ? 'live' : p.kind === 'movie' ? 'movies' : p.kind === 'rec' ? 'rec'
           : p.kind === 'radio' || p.kind === 'surah' || p.kind === 'dhikr' ? 'radio' : 'series';
         if (want !== S.section) switchSection(want);
         if (want === 'radio') showPlayingRadio(p);
@@ -1380,7 +1374,7 @@
 
   /* ---------------- banner ---------------- */
 
-  function isVod() { return S.playing && S.playing.kind !== 'live' && S.playing.kind !== 'radio' && S.playing.kind !== 'cam'; }
+  function isVod() { return S.playing && S.playing.kind !== 'live' && S.playing.kind !== 'radio'; }
 
   function renderBanner() {
     var p = S.playing;
@@ -2075,7 +2069,7 @@
     showBanner();
     // Watchdog: a movie / episode that shows nothing for 25 s gets a clear message instead of a black screen.
     clearTimeout(timers.watchdog);
-    if (p.kind !== 'live' && p.kind !== 'cam') {
+    if (p.kind !== 'live') {
       timers.watchdog = setTimeout(function () {
         if (S.playing !== p || p.started || S.statusErr) return;
         S.status = 'Not starting (player: ' + Player.state() + ')  ·  try another version of this title';
@@ -2086,7 +2080,7 @@
     var startMs = opts.startMs || (p.posKey && positions[p.posKey] ? positions[p.posKey] : 0);
     if (startMs) toast('Resuming at ' + fmtTime(startMs) + ' · ◄ to rewind', 3000);
     clearTimeout(timers.zap);
-    var go = function () { Player.play(p.url, { live: p.kind === 'live' || p.kind === 'radio' || p.kind === 'cam', startMs: startMs, title: p.title, sub: p.sub, art: p.logo }); };
+    var go = function () { Player.play(p.url, { live: p.kind === 'live' || p.kind === 'radio', startMs: startMs, title: p.title, sub: p.sub, art: p.logo }); };
     if (opts.debounce) { timers.zap = setTimeout(go, ZAP_DELAY); return; }
     var vod = p.kind === 'movie' || p.kind === 'episode';
     var wantProbe = vod && (/^mkv$/i.test(p.ext || '') || OpenSubs.enabled());
@@ -2194,7 +2188,6 @@
     if (kind === 'series') return openSeries(it);
     if (kind === 'reciter') return openReciter(it);
     if (kind === 'khatma') return khatmaAction(it);
-    if (kind === 'cam') return openCam(it);
     if (kind === 'dhikr') { S.zap = { kind: 'dhikr', list: S.view.slice() }; playDhikr(it); return; }
     if (kind === 'radio') { S.zap = { kind: 'radio', list: S.view.slice() }; playRadio(it, (S.groupItems[S.groupSel] || {}).id); return; }
     if (kind === 'surah') { S.zap = { kind: 'surah', list: S.view.slice(), reciter: S.reciter.r }; playSurah(it, S.reciter.r); return; }
@@ -3030,7 +3023,6 @@
     rows.push({ key: 'results', id: 'results', title: 'Results', items: res, empty: HOME.resultsOld || HOME.matches ? 'No results in the last days' : 'Loading results…' });
     rows.push({ key: 'pray', id: 'pray', title: 'Prayer times · ' + homeCfg().weather.name, items: prayerCards(), empty: 'Loading prayer times…' });
     rows.push({ key: 'table', id: 'table', title: 'League tables', items: tableCards(), empty: 'Loading tables…' });
-    if (!window.AndroidPlayer) rows.push({ key: 'cams', id: 'cams', title: '◉ Live cams', items: Cams.list, empty: '' });
     homeCfg().news.forEach(function (feed, i) {
       var n = HOME.news[i];
       rows.push({ key: 'news:' + i, id: 'news', title: feed.title, items: n ? n.items : [], empty: !n ? 'Loading news…' : n.error ? 'News unavailable (' + n.error + ')' : 'No news' });
@@ -3122,10 +3114,6 @@
       return '<div class="hcard table"><div class="t-title">' + esc(it.name) + '</div>' + rowsH + '</div>';
     }
     if (type === 'results') return resultHtml(it);
-    if (type === 'cams') {
-      return '<div class="hcard news cam"><span class="cam-live">● LIVE</span>' +
-        '<div class="n-body"><div class="n-title" dir="auto">' + esc(it.n) + '</div><div class="n-meta">' + esc(it.sub || it.cat) + '</div></div></div>';
-    }
     if (type === 'cw') {
       var pic = it.kind === 'episode' ? it.series && it.series.l : it.item.l;
       var title = it.kind === 'episode' ? cleanTitle(it.series.n) + ' ' + (it.item.n.split(' · ')[0] || '') : cleanTitle(it.item.n);
@@ -3180,7 +3168,6 @@
   function openHomeItem(type, it) {
     if (type === 'news') { openReader(it); return; }
     if (type === 'table') { openTable(it); return; }
-    if (type === 'cams') { openCam(it); return; }
     if (type === 'pray' || type === 'rate' || type === 'results') return;
     if (type === 'favs') {
       S.zapCtx = 'fav'; S.zap = { kind: 'live', list: favList() };
@@ -3343,11 +3330,6 @@
    * Trailer inside the app. YouTube refuses to play in a player that has no web address (Error 153),
    * and a TV app has none, so the player is a small page on GitHub Pages (config "trailerPage").
    */
-  /** A live cam: an ad-free public HLS stream, played full screen by the app's own player. */
-  function openCam(cam) {
-    startPlaying({ kind: 'cam', id: cam.id, url: cam.u, title: cam.n, sub: cam.sub || cam.cat, logo: '', ext: 'm3u8', item: cam });
-    closePanel();
-  }
 
   function playTrailer(id, channel) {
     if (!id) return;
@@ -3924,7 +3906,6 @@
     var lay = Store.lsGet('homeRows') || {}, order = lay.order || [];
     var defs = [{ key: 'matches', title: 'Matches' }, { key: 'results', title: 'Results' }, { key: 'pray', title: 'Prayer times' },
       { key: 'table', title: 'League tables' }];
-    if (!window.AndroidPlayer) defs.push({ key: 'cams', title: 'Live cams' });
     homeCfg().news.forEach(function (f, i) { defs.push({ key: 'news:' + i, title: 'News · ' + f.title }); });
     defs.push({ key: 'rate', title: 'Exchange rates' }, { key: 'cw', title: 'Continue watching' },
       { key: 'recent', title: 'Recently watched' }, { key: 'favs', title: 'Favorite channels' });
