@@ -488,6 +488,7 @@
     if (gi.id === 'khatma') return khatmaView();
     var id = gi.id, list = id === 'rfav' ? S.radioFavs : RADIO.lists[id];
     if (id === 'reciters') out.kind = 'reciter';
+    if (id === 'adhkar') out.kind = 'dhikr';
     if (!list) {
       out.msg = RADIO.errors[id] ? 'Could not load this list:\n' + RADIO.errors[id] : 'Loading…';
       if (!RADIO.errors[id]) loadRadioList(id);
@@ -503,7 +504,7 @@
   function loadRadioList(id) {
     if (RADIO.loading[id]) return;
     RADIO.loading[id] = true;
-    var fn = id === 'quranlive' ? RadioData.quranRadios : id === 'reciters' ? RadioData.reciters
+    var fn = id === 'quranlive' ? RadioData.quranRadios : id === 'reciters' ? RadioData.reciters : id === 'adhkar' ? RadioData.adhkar
       : function (cb) { RadioData.stations(id.substring(3), cb); };
     fn(function (err, items) {
       RADIO.loading[id] = false;
@@ -544,6 +545,22 @@
     Store.lsSet('last', { p: { kind: 'surah', item: s, reciter: { id: r.id, n: r.n, server: r.server, rewaya: r.rewaya, surahs: r.surahs } } });
     startPlaying({ kind: 'surah', id: s.id, url: RadioData.surahUrl(r, s.num), title: s.n.replace(/^\d+\s+/, 'سورة '), sub: r.n, logo: '', ext: 'mp3', item: s, reciter: r, num: s.num }, opts);
     saveKhatma(r, s.num, opts && opts.startMs || 0);
+  }
+
+  function playDhikr(d) {
+    var n = (S.zap.kind === 'dhikr' && S.zap.list.length) || 24;
+    startPlaying({ kind: 'dhikr', id: d.id, url: d.u, title: 'أذكار الصباح والمساء', sub: d.num + ' / ' + n + (d.rep > 1 ? '  ·  ×' + d.rep : ''),
+      logo: '', ext: 'mp3', item: d });
+  }
+
+  /** Start the morning / evening adhkar from the first one (Radio > Adhkar, or the reminder). */
+  function startAdhkar() {
+    RadioData.adhkar(function (err, list) {
+      if (err || !list.length) return toast('Adhkar not available: ' + (err || 'empty'), 5000);
+      S.zap = { kind: 'dhikr', list: list };
+      playDhikr(list[0]);
+      closePanel();
+    });
   }
 
   function isRadioFav(id) { return S.radioFavs.some(function (x) { return x.id === id; }); }
@@ -639,6 +656,9 @@
         S.reciter = { r: S.zap.reciter, list: S.zap.list, backSel: 0 };
         applyView(true);
       }
+    } else if (p.kind === 'dhikr' && !S.reciter && playingPos() < 0) {
+      var di = groupIndex('adhkar');
+      if (di >= 0) selectGroup(di);
     } else if (p.kind === 'radio' && !S.reciter && playingPos() < 0 && p.gid) {
       var gi = groupIndex(p.gid);
       if (gi >= 0) selectGroup(gi);
@@ -652,19 +672,21 @@
 
   /** Radio and Quran have no picture: a "now playing" screen instead of black. */
   function updateNowPlaying() {
-    var p = S.playing, on = p && (p.kind === 'radio' || p.kind === 'surah' || p.kind === 'adhan');
+    var p = S.playing, on = p && (p.kind === 'radio' || p.kind === 'surah' || p.kind === 'adhan' || p.kind === 'dhikr');
     $('np').classList[on ? 'remove' : 'add']('hidden');
     if (!on) return;
     var img = $('np-logo');
     if (p.logo) { img.style.display = ''; img.src = p.logo; } else img.style.display = 'none';
-    $('np-letter').textContent = p.kind === 'surah' || p.kind === 'adhan' ? '۞' : String(p.title || '?').charAt(0).toUpperCase();
+    $('np-letter').textContent = p.kind === 'surah' || p.kind === 'adhan' || p.kind === 'dhikr' ? '۞' : String(p.title || '?').charAt(0).toUpperCase();
     $('np-title').textContent = p.title;
     $('np-sub').textContent = (p.kind === 'radio' && isRadioFav(p.id) ? '★  ' : '') + (p.sub || '');
-    $('np-hint').textContent = p.kind === 'adhan' ? 'BACK to skip the adhan  ·  then what you listened to continues'
+    $('np-hint').textContent = p.kind === 'dhikr' ? 'CH ▲▼ next / previous  ·  OK list  ·  BACK stop'
+      : p.kind === 'adhan' ? 'BACK to skip the adhan  ·  then what you listened to continues'
       : p.kind === 'surah' ? 'CH ▲▼ next / previous surah  ·  ◄ ► rewind / forward  ·  OK list  ·  hold OK: translation'
       : 'CH ▲▼ next station  ·  GREEN favorite  ·  OK list  ·  BACK stop';
-    $('np').classList[p.kind === 'surah' || p.kind === 'adhan' ? 'add' : 'remove']('quran');
-    $('np-prog').classList[p.kind === 'surah' || p.kind === 'adhan' ? 'add' : 'remove']('on');
+    var quranLook = p.kind === 'surah' || p.kind === 'adhan' || p.kind === 'dhikr';
+    $('np').classList[quranLook ? 'add' : 'remove']('quran');
+    $('np-prog').classList[quranLook ? 'add' : 'remove']('on');
     if (NPX.pid !== p.id) {
       // Something new is playing: forget the last song title / verses.
       NPX.pid = p.id;
@@ -673,6 +695,12 @@
       $('np-song').textContent = '';
       $('np-verse').innerHTML = '';
       if (p.kind === 'surah') loadVerses(p);
+      if (p.kind === 'dhikr') {
+        // the dhikr itself, and how many times to say it
+        $('np-verse').innerHTML = '<div>' + esc(p.item.text) + '</div>' +
+          (p.item.rep > 1 ? '<div class="np-tr" dir="rtl">يُقال ' + p.item.rep + ' مرات  ·  ×' + p.item.rep + '</div>' : '');
+        setTimeout(fitVerse, 0);
+      }
     }
     renderNpBoard();
     rotateNpNews();
@@ -697,7 +725,7 @@
       NPX.driftAt = now;
       $('np-stage').style.transform = 'translate(' + (Math.round(Math.random() * 60) - 30) + 'px,' + (Math.round(Math.random() * 30) - 15) + 'px)';
     }
-    if (p && (p.kind === 'surah' || p.kind === 'adhan')) npQuranTick(p);
+    if (p && (p.kind === 'surah' || p.kind === 'adhan' || p.kind === 'dhikr')) npQuranTick(p);
     if (p && p.kind === 'surah' && now - (NPX.khAt || 0) > 10000) { NPX.khAt = now; saveKhatma(p.reciter, p.num, Player.time()); }
     if (p && p.kind === 'radio' && !NPX.icyOff && now - NPX.icyAt > 25000) { NPX.icyAt = now; icyPoll(p); }
   }
@@ -899,6 +927,7 @@
     } else if (sec === 'radio') {
       items.push({ id: 'rfav', label: '★ Favorites' });
       items.push({ id: 'khatma', label: 'Khatma · أكمل الختمة' });
+      items.push({ id: 'adhkar', label: 'Adhkar · أذكار الصباح والمساء' });
       items.push({ id: 'quranlive', label: 'Quran radio · إذاعات القرآن' });
       items.push({ id: 'reciters', label: 'Quran by reciter · القراء' });
       RadioData.GROUPS.forEach(function (g) { items.push({ id: 'rg:' + g[0], label: g[1], rgroup: g[0] }); });
@@ -1127,7 +1156,7 @@
       r._q.style.display = 'none';
       r._num.textContent = i + 1;
       r._name.textContent = it.n;
-      if (kind === 'radio' || kind === 'reciter' || kind === 'surah' || kind === 'khatma') {
+      if (kind === 'radio' || kind === 'reciter' || kind === 'surah' || kind === 'khatma' || kind === 'dhikr') {
         r._num.textContent = i + 1;
         r._name.textContent = it.n;
         r._fav.textContent = kind === 'radio' && isRadioFav(it.id) ? '★' : kind === 'reciter' ? '›' : '';
@@ -1311,7 +1340,7 @@
       var p = S.playing;
       if (p) {
         var want = p.kind === 'live' ? 'live' : p.kind === 'movie' ? 'movies' : p.kind === 'rec' ? 'rec'
-          : p.kind === 'radio' || p.kind === 'surah' ? 'radio' : 'series';
+          : p.kind === 'radio' || p.kind === 'surah' || p.kind === 'dhikr' ? 'radio' : 'series';
         if (want !== S.section) switchSection(want);
         if (want === 'radio') showPlayingRadio(p);
       }
@@ -1912,6 +1941,11 @@
     if (p && p.kind === 'adhan') { endAdhan(); return; }
     if (recoverVod('stream ended early')) return;
     if (p) { clearPos(p.posKey); finishedTitle(p); }
+    if (p && p.kind === 'dhikr' && S.zap.kind === 'dhikr') {
+      var dp = indexById(S.zap.list, p.id);
+      if (dp >= 0 && dp + 1 < S.zap.list.length) { playDhikr(S.zap.list[dp + 1]); return; }
+      showGoal('تقبل الله  ·  الأذكار تمت'); leaveVod(); return;
+    }
     if (p && p.kind === 'surah' && S.zap.kind === 'surah') {
       var sp = indexById(S.zap.list, p.id);
       if (sp >= 0 && sp + 1 < S.zap.list.length) { playSurah(S.zap.list[sp + 1], S.zap.reciter); return; }
@@ -2122,11 +2156,11 @@
       if (pos < 0 || pos >= S.zap.list.length) return toast(dir > 0 ? 'Last episode' : 'First episode');
       return playEpisode(S.zap.list[pos], S.zap.series);
     }
-    if (p && (p.kind === 'radio' || p.kind === 'surah') && S.zap.kind === p.kind) {
+    if (p && (p.kind === 'radio' || p.kind === 'surah' || p.kind === 'dhikr') && S.zap.kind === p.kind) {
       var rp = indexById(S.zap.list, p.id) + dir, rl = S.zap.list;
       if (!rl.length) return;
       rp = (rp + rl.length) % rl.length;
-      return p.kind === 'radio' ? playRadio(rl[rp]) : playSurah(rl[rp], S.zap.reciter);
+      return p.kind === 'radio' ? playRadio(rl[rp]) : p.kind === 'dhikr' ? playDhikr(rl[rp]) : playSurah(rl[rp], S.zap.reciter);
     }
     if (p && p.kind !== 'live') return;
     var list = S.zap.kind === 'live' && S.zap.list.length ? S.zap.list : S.live.allIdx;
@@ -2152,6 +2186,7 @@
     if (kind === 'series') return openSeries(it);
     if (kind === 'reciter') return openReciter(it);
     if (kind === 'khatma') return khatmaAction(it);
+    if (kind === 'dhikr') { S.zap = { kind: 'dhikr', list: S.view.slice() }; playDhikr(it); return; }
     if (kind === 'radio') { S.zap = { kind: 'radio', list: S.view.slice() }; playRadio(it, (S.groupItems[S.groupSel] || {}).id); return; }
     if (kind === 'surah') { S.zap = { kind: 'surah', list: S.view.slice(), reciter: S.reciter.r }; playSurah(it, S.reciter.r); return; }
     if (isPlayingRow(chList.sel)) { closePanel(); showBanner(); return; }
@@ -2677,7 +2712,25 @@
 
   /** A short banner at each adhan (once per prayer), wherever you are in the app. */
   var adhanShown = Store.lsGet('adhanShown') || '';
+  /** After Fajr (morning) and after Asr (evening): offer the adhkar, once each. */
+  var adhkarAsked = Store.lsGet('adhkarAsked') || '';
+  function checkAdhkar() {
+    if (Store.lsGet('adhkarOff')) return;
+    var today = new Date().toDateString(), t = HOME.prayer[today], now = Date.now();
+    if (!t || ALERT) return;
+    var am = now > prayerDate(today, t.Fajr) + 10 * 60000 && now < prayerDate(today, t.Sunrise);
+    var pm = now > prayerDate(today, t.Asr) + 10 * 60000 && now < prayerDate(today, t.Maghrib);
+    var key = today + (am ? '|am' : pm ? '|pm' : '');
+    if ((!am && !pm) || adhkarAsked === key) return;
+    if (S.playing && (S.playing.kind === 'dhikr' || S.playing.kind === 'adhan')) return;
+    adhkarAsked = key;
+    Store.lsSet('adhkarAsked', key);
+    showAlert(am ? 'أذكار الصباح' : 'أذكار المساء', am ? 'Morning adhkar' : 'Evening adhkar', 'Listen', 'Not now',
+      startAdhkar, null, 45000, true);
+  }
+
   function checkPrayer() {
+    checkAdhkar();
     var cfg = homeCfg();
     if (!cfg.prayer.notify) return;
     var now = Date.now(), today = new Date().toDateString(), t = HOME.prayer[today];
@@ -3906,6 +3959,7 @@
       { id: 'quality', label: 'Live channel quality', value: fastStart() ? 'Fast start  ·  FHD first, 4K only if needed' : 'Best picture  ·  4K first' },
       { id: 'home', label: 'Home screen', value: 'show, hide and order the rows' },
       { id: 'quranTr', label: 'Quran translation', value: quranTrLabel() + '  ·  under each verse' },
+      { id: 'adhkar', label: 'Adhkar reminder', value: Store.lsGet('adhkarOff') ? 'Off' : 'On  ·  after Fajr and after Asr' },
       { id: 'adhan', label: 'Adhan on radio', value: Store.lsGet('adhanOff') ? 'Off' : 'On  ·  at each prayer the radio pauses for the adhan' },
       { id: 'subsize', label: 'Subtitle size', value: SUB_SIZES[subStyle.size || 0].n },
       { id: 'subcolor', label: 'Subtitle colour', value: SUB_COLORS[subStyle.color || 0].n },
@@ -4019,6 +4073,7 @@
           toast(fastStart() ? 'Fast start: channels open in FHD (4K only if FHD fails)' : 'Best picture: channels open in 4K when there is one', 4000);
           renderSettings();
         }
+        else if (row.id === 'adhkar') { Store.lsSet('adhkarOff', !Store.lsGet('adhkarOff')); renderSettings(); }
         else if (row.id === 'adhan') { Store.lsSet('adhanOff', !Store.lsGet('adhanOff')); renderSettings(); }
         else if (row.id === 'sleep') cycleSleep();
         else if (row.id === 'subsize' || row.id === 'subcolor' || row.id === 'subbg') {

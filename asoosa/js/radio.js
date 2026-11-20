@@ -174,9 +174,24 @@ var RadioData = (function () {
     }, cb);
   }
 
+  /** Morning & evening adhkar (Hisn al-Muslim): [{ id, n, text, rep, u }] — each with its own recording. */
+  function adhkar(cb) {
+    cached('adhkar', function (done) {
+      getJSON('https://www.hisnmuslim.com/api/ar/27.json', function (err, d) {
+        var k = d && Object.keys(d)[0], list = k && d[k];
+        if (err || !(list instanceof Array)) return done(err || 'no adhkar');
+        done(null, list.filter(function (x) { return x.AUDIO; }).map(function (x, i) {
+          var t = String(x.ARABIC_TEXT || '').trim();
+          return { id: 'dk:' + x.ID, num: i + 1, n: (i + 1) + '  ' + t.split(/\s+/).slice(0, 7).join(' ') + '…', text: t,
+            rep: parseInt(x.REPEAT, 10) || 1, u: String(x.AUDIO).replace(/^http:/, 'https:') };
+        }));
+      });
+    }, cb);
+  }
+
   function pad3(n) { return n < 10 ? '00' + n : n < 100 ? '0' + n : '' + n; }
   function surahUrl(reciter, n) { return reciter.server.replace(/\/?$/, '/') + pad3(n) + '.mp3'; }
 
   return { GROUPS: GROUPS, stations: stations, clicked: clicked, quranRadios: quranRadios, reciters: reciters, suwar: suwar, surahUrl: surahUrl,
-    timing: timing, surahText: surahText };
+    timing: timing, surahText: surahText, adhkar: adhkar };
 })();
