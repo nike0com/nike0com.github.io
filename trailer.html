@@ -6,19 +6,53 @@
 <title>Trailer</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-  iframe { position: fixed; left: 0; top: 0; width: 100%; height: 100%; border: 0; }
+  iframe, #p { position: fixed; left: 0; top: 0; width: 100%; height: 100%; border: 0; }
 </style>
 </head>
 <body>
+<div id="p"></div>
 <script>
-  // Shows one YouTube video full screen: trailer.html?v=VIDEO_ID
+  // Shows one YouTube video full screen: trailer.html?v=VIDEO_ID  (trailers)
+  //                                       trailer.html?v=VIDEO_ID&c=CHANNEL_ID  (live cams)
   // Used by a TV app that cannot embed YouTube itself (it has no web address).
-  var m = /[?&]v=([A-Za-z0-9_-]{6,20})/.exec(location.search);
-  if (m) {
+  // Live cams: when the video is gone or has ended (24/7 streams restart with a new id),
+  // show whatever the channel is streaming live now instead.
+  var q = location.search;
+  var v = (/[?&]v=([A-Za-z0-9_-]{6,20})/.exec(q) || [])[1];
+  var c = (/[?&]c=(UC[A-Za-z0-9_-]{20,24})/.exec(q) || [])[1];
+  var vars = 'autoplay=1&rel=0&modestbranding=1&playsinline=1';
+
+  function frame(src) {
+    var old = document.getElementById('p');
     var f = document.createElement('iframe');
+    f.id = 'p';
     f.allow = 'autoplay; fullscreen; encrypted-media';
-    f.src = 'https://www.youtube.com/embed/' + m[1] + '?autoplay=1&rel=0&modestbranding=1&playsinline=1';
-    document.body.appendChild(f);
+    f.src = src;
+    old.parentNode.replaceChild(f, old);
+  }
+  function channelLive() { if (c) frame('https://www.youtube.com/embed/live_stream?channel=' + c + '&' + vars); }
+
+  if (v && c) {
+    // the IFrame API tells us when the video fails or ends
+    window.onYouTubeIframeAPIReady = function () {
+      new YT.Player('p', {
+        videoId: v,
+        playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
+        events: {
+          onReady: function (e) { e.target.playVideo(); },
+          onError: channelLive,
+          onStateChange: function (e) { if (e.data === 0) channelLive(); }
+        }
+      });
+    };
+    var s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    s.onerror = function () { frame('https://www.youtube.com/embed/' + v + '?' + vars); };
+    document.head.appendChild(s);
+  } else if (v) {
+    frame('https://www.youtube.com/embed/' + v + '?' + vars);
+  } else {
+    channelLive();
   }
 </script>
 </body>
