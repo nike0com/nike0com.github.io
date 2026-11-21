@@ -146,13 +146,50 @@
 
   function chKey(c) { return S.live.groups[c.g] + '|' + c.n; }
 
+  /* ---- adult channels: behind a PIN, never in All channels, search, numbers, recents or "last channel" ---- */
+
+  var ADULT_RE = /^\s*18\s*\||adult|xxx|porn/i, ADULT_MS = 15 * 60000, adultUntil = 0;
+  function isAdultGroup(name) { return ADULT_RE.test(name || ''); }
+  function isAdultCh(idx) { var c = S.live.channels[idx]; return !!c && isAdultGroup(S.live.groups[c.g]); }
+  function adultOpen() { return Date.now() < adultUntil; }
+  function lockedGroup(gi) { return !!gi && S.section === 'live' && gi.id.indexOf('g:') === 0 && isAdultGroup(gi.id.substring(2)) && !adultOpen(); }
+  /** Runs fn once the PIN is right (asks for a new PIN the first time). Open for 15 minutes after the last use. */
+  function withPin(fn) {
+    var pin = Store.lsGet('adultPin');
+    if (!pin) return newPin(function () { adultUntil = Date.now() + ADULT_MS; fn(); });
+    askText('PIN', '', function (v) {
+      if (v !== pin) return toast('Wrong PIN');
+      adultUntil = Date.now() + ADULT_MS;
+      fn();
+    }, true);
+  }
+  function newPin(done) {
+    askText('New PIN  ·  4 to 8 digits', '', function (a) {
+      if (!/^\d{4,8}$/.test(a)) return toast('The PIN must be 4 to 8 digits');
+      askText('Repeat the new PIN', '', function (b) {
+        if (a !== b) return toast('The two PINs are not the same');
+        Store.lsSet('adultPin', a);
+        toast('PIN saved');
+        if (done) done();
+      }, true);
+    }, true);
+  }
+  /** Opens the locked group that is selected now. */
+  function unlockGroup() { withPin(function () { applyView(false); setFocus('list'); }); }
+  /** Every minute: watching keeps it open; when it closes, a shown adult group locks again. */
+  function adultTick() {
+    var p = S.playing;
+    if (adultOpen() && p && p.kind === 'live' && isAdultCh(p.idx)) adultUntil = Date.now() + ADULT_MS;
+    if (!adultOpen() && S.section === 'live' && lockedGroup(S.groupItems[S.groupSel]) && S.view.length) applyView(false);
+  }
+
   function liveUrl(c) { return S.acc ? Xtream.liveUrl(S.acc, c.id) : c.u; }
 
   function favList() {
     var out = [], ki = S.live.keyIndex;
     var L = S.live, seen = {};
     for (var k in S.favs) {
-      if (!S.favs.hasOwnProperty(k) || ki[k] === undefined) continue;
+      if (!S.favs.hasOwnProperty(k) || ki[k] === undefined || (isAdultCh(ki[k]) && !adultOpen())) continue;
       var rep = L.repOf[ki[k]];
       if (rep === undefined) rep = ki[k];
       if (!seen[rep]) { seen[rep] = 1; out.push(rep); }
@@ -196,8 +233,10 @@
       }
     }
     var num = {}, pos = 0;
-    for (g = 0; g < gl.length; g++) for (j = 0; j < gl[g].length; j++) { all[pos++] = gl[g][j]; num[gl[g][j]] = pos; }
+    for (g = 0; g < gl.length; g++) if (!isAdultGroup(pl.groups[g])) for (j = 0; j < gl[g].length; j++) { all[pos++] = gl[g][j]; num[gl[g][j]] = pos; }
     all.length = pos;
+    var anum = pos;                                         // adult channels: numbered after the rest, not in "All channels"
+    for (g = 0; g < gl.length; g++) if (isAdultGroup(pl.groups[g])) for (j = 0; j < gl[g].length; j++) num[gl[g][j]] = ++anum;
     L.groupLists = gl; L.lname = lname; L.allIdx = all; L.keyIndex = keyIndex;
     L.qual = qual; L.alts = alts; L.repOf = repOf; L.num = num;
 
@@ -1013,6 +1052,9 @@
         var ln = S.live.lname;
         view = searchIn(S.live.allIdx, function (idx) { return ln[idx]; }, S.query);
         title = (S.queryLabel || 'Search “' + S.query + '”') + ' · ' + view.length;
+      } else if (lockedGroup(gi)) {
+        title = splitLabel(gi.label).name;
+        msg = 'Locked\nPress OK and enter the PIN';
       } else if (gi) {
         view = gi.id === 'fav' ? favList() : liveListFor(gi.id);
         title = splitLabel(gi.label).name + ' · ' + view.length;
@@ -2118,13 +2160,18 @@
   function playLive(idx, opts) {
     var c = S.live.channels[idx];
     if (!c) return;
+    var adult = isAdultCh(idx);
+    if (adult && !adultOpen()) return withPin(function () { playLive(idx, opts); });
+    if (adult) adultUntil = Date.now() + ADULT_MS;
     var L = S.live, order = liveChoice(idx), pc = L.channels[order[0]];
     var p = {
       kind: 'live', idx: idx, id: pc.id, key: chKey(c), url: liveUrl(pc), title: c.n, sub: L.groups[c.g], logo: c.l,
       num: L.num[idx] || '', ext: 'ts', q: L.qual[order[0]], alts: order.slice(1)
     };
-    Store.lsSet('last', { p: { kind: 'live', key: p.key, url: p.url, title: p.title, sub: p.sub, logo: p.logo }, ctx: S.zapCtx });
-    rememberChannel(c);
+    if (!adult) {
+      Store.lsSet('last', { p: { kind: 'live', key: p.key, url: p.url, title: p.title, sub: p.sub, logo: p.logo }, ctx: S.zapCtx });
+      rememberChannel(c);
+    }
     startPlaying(p, opts);
   }
 
@@ -2566,7 +2613,7 @@
           case 'LEFT': setFocus('groups'); break;
           case 'CH_UP': chList.page(-1); break;
           case 'CH_DOWN': chList.page(1); break;
-          case 'ENTER': activateRow(); break;
+          case 'ENTER': if (lockedGroup(S.groupItems[S.groupSel]) && !S.query) unlockGroup(); else activateRow(); break;
           case 'GREEN':
             if (!S.view.length) break;
             if (S.viewKind === 'live') toggleFav(S.view[chList.sel]);
@@ -2586,7 +2633,7 @@
           case 'CH_UP': grList.page(-1); selectGroup(grList.sel); break;
           case 'CH_DOWN': grList.page(1); selectGroup(grList.sel); break;
           case 'LEFT': setFocus('tabs'); break;
-          case 'RIGHT': case 'ENTER': setFocus('list'); break;
+          case 'RIGHT': case 'ENTER': if (lockedGroup(S.groupItems[S.groupSel])) unlockGroup(); else setFocus('list'); break;
           case 'BACK': panelBack(); break;
         }
         break;
@@ -4087,10 +4134,12 @@
   /* ---- text entry on the TV keyboard ---- */
 
   var PROMPT = null;                                    // { cb }
-  function askText(title, value, cb) {
+  function askText(title, value, cb, secret) {
     PROMPT = { cb: cb, focus: S.focus };
     $('pr-title').textContent = title;
     var inp = $('pr-input');
+    inp.type = secret ? 'password' : 'text';                // a PIN: dots, number keyboard
+    if (secret) inp.setAttribute('inputmode', 'numeric'); else inp.removeAttribute('inputmode');
     inp.value = value || '';
     $('prompt').classList.remove('hidden');
     setTimeout(function () { inp.focus(); try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (e) {} }, 50);
@@ -4211,6 +4260,7 @@
       { id: 'home', label: 'Home screen', value: 'show, hide and order the rows' },
       { id: 'quranTr', label: 'Quran translation', value: quranTrLabel() + '  ·  under each verse' },
       { id: 'adhkar', label: 'Adhkar reminder', value: Store.lsGet('adhkarOff') ? 'Off' : 'On  ·  after Fajr and after Asr' },
+      { id: 'pin', label: 'Adult channels PIN', value: Store.lsGet('adultPin') ? 'On  ·  OK to change the PIN' : 'Not set  ·  OK to set it' },
       { id: 'fast', label: 'Fasting reminder', value: Store.lsGet('fastOff') ? 'Off' : 'On  ·  evening before Monday, Thursday, White days, Arafah, Ashura' },
       { id: 'adhan', label: 'Adhan on radio', value: Store.lsGet('adhanOff') ? 'Off' : 'On  ·  at each prayer the radio pauses for the adhan' },
       { id: 'subsize', label: 'Subtitle size', value: SUB_SIZES[subStyle.size || 0].n },
@@ -4326,6 +4376,10 @@
           renderSettings();
         }
         else if (row.id === 'adhkar') { Store.lsSet('adhkarOff', !Store.lsGet('adhkarOff')); renderSettings(); }
+        else if (row.id === 'pin') {
+          if (Store.lsGet('adultPin')) withPin(function () { newPin(renderSettings); });
+          else newPin(renderSettings);
+        }
         else if (row.id === 'fast') { Store.lsSet('fastOff', !Store.lsGet('fastOff')); renderSettings(); }
         else if (row.id === 'saver') cycleSaver();
         else if (row.id === 'adhan') { Store.lsSet('adhanOff', !Store.lsGet('adhanOff')); renderSettings(); }
@@ -4546,7 +4600,8 @@
       setFocus(sec === 'home' ? 'home' : sec === 'settings' ? 'settings' : S.groupItems.length > 1 ? 'groups' : 'list');
       return;
     }
-    if ((x = closestEl(el, '#groups .row'))) { if (x._idx >= 0) { setFocus('groups'); selectGroup(x._idx); } return; }
+    if ((x = closestEl(el, '#groups .row'))) { if (x._idx >= 0) { setFocus('groups'); selectGroup(x._idx); if (lockedGroup(S.groupItems[x._idx])) unlockGroup(); } return; }
+    if (closestEl(el, '#list-msg') && lockedGroup(S.groupItems[S.groupSel])) { unlockGroup(); return; }
     if ((x = closestEl(el, '#channels .row'))) { if (x._idx >= 0) { setFocus('list'); chList.select(x._idx); activateRow(); } return; }
     if ((x = closestEl(el, '#grid .tile'))) {
       if (x._idx < 0) return;
@@ -4723,6 +4778,7 @@
     setInterval(function () { if (S.cfg && !HOME.prayer[new Date().toDateString()]) loadPrayer(false); }, 30 * 60000);
     setInterval(checkSleep, 10000);
     setInterval(checkSaver, 15000);
+    setInterval(adultTick, 60000);
     document.addEventListener('mousedown', function () { lastInput = Date.now(); if (SAVER) closeSaver(); }, true);
     setInterval(pollMatches, 60000);
     // Daily automatic backup to the USB drive (silent; skipped when no drive is plugged in).
