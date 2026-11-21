@@ -3907,7 +3907,7 @@
       el.id = 'saver';
       el.innerHTML = '<div class="sv-bg"></div><div class="sv-bg"></div><div class="sv-shade"></div>' +
         '<div id="sv-box"><div id="sv-time"></div><div id="sv-date"></div><div id="sv-hijri" dir="rtl"></div>' +
-        '<div id="sv-pray"></div><div id="sv-verse" dir="rtl"></div><div id="sv-de"></div></div><div id="sv-credit"></div>';
+        '<div id="sv-pray"></div></div><div id="sv-credit"></div>';
       document.body.appendChild(el);
     }
     SAVER = { pics: [], i: 0, layer: 0, fails: 0 };
@@ -3957,10 +3957,7 @@
     prayerCards().forEach(function (c) { if (c.next) next = c; });
     var mins = next ? Math.max(0, Math.round((next.at - Date.now()) / 60000)) : 0;
     $('sv-pray').textContent = next ? next.name + '  ' + next.ar + '  ' + next.time + '   ·   ' + deLeft(mins) : '';
-    var a = HOME.daily.ayah;
-    var showV = a && a.ar.length < 260;
-    $('sv-verse').textContent = showV ? a.ar + '  ﴿' + a.refAr + '﴾' : '';
-    $('sv-de').textContent = showV && a.tr && a.tr.length < 300 ? a.tr : '';
+    // no Quran verse here: the screensaver can run while music plays
   }
 
   /* ---------------- sleep timer ---------------- */

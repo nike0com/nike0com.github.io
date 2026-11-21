@@ -698,6 +698,4 @@ body.tall .npb { margin: 6px 0; flex: 1; }
 #sv-date { font-size: 38px; margin-top: 8px; }
 #sv-hijri { font-size: 36px; margin-top: 6px; color: #f3dc8c; unicode-bidi: plaintext; }
 #sv-pray { font-size: 30px; margin-top: 14px; color: #d9d0ff; }
-#sv-verse { font-size: 32px; line-height: 1.6; margin-top: 18px; unicode-bidi: plaintext; }
-#sv-de { font-size: 24px; line-height: 1.4; margin-top: 8px; color: #e6e9f0; max-width: 1000px; }
 #sv-credit { position: absolute; right: 24px; bottom: 14px; font-size: 15px; color: rgba(255,255,255,.55); max-width: 900px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
